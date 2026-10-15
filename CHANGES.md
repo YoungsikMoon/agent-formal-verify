@@ -1,8 +1,12 @@
 # Changes
 
+## 0.3.5 - fetch TLC in CI without a token, and name no MCP package
+
+The CI workflow fetched the pinned TLC JAR with the GitHub CLI under the workflow's token, the only credential variable in the repository. The Claude directory scans every tracked file and read that as a credential taken from the environment and sent to a server. The workflow now downloads the release asset with curl and checks it against the pinned SHA256 through the shared helper before anything runs it. The Lean brief no longer links to a Lean language-server MCP package; the directory counts package launchers as download-and-run commands, and that link was the plugin's only reference to installable software. The 0.3.4 strip of the image manifests cleared the image hold and one of two credential findings; the token read was the other.
+
 ## 0.3.4 - keep image references out of release-note code
 
-Removed the obsolete icon path from a release-note code span. The Claude directory treats bundled image paths in backticks as possible executable references, even in historical prose. The two README images added in 0.3.3 carried signed C2PA provenance manifests from the image generator, whose certificates the directory screened as credentials; the `caBX` chunk is stripped from both, leaving the pixels unchanged. Metadata tests now reject bundled image and font paths in documentation code, reject provenance and text chunks in bundled PNGs, and guard the plugin's absence of automatic hooks and MCP or LSP servers. The README makes explicit that the plugin configures no servers or hooks and requires no credentials.
+Removed the obsolete icon path from a release-note code span. The Claude directory treats bundled image paths in backticks as possible executable references, even in historical prose. The two README images added in 0.3.3 carried signed C2PA provenance manifests from the image generator; the `caBX` chunk is stripped from both, leaving the pixels unchanged, which cleared the directory's image hold. Metadata tests now reject bundled image and font paths in documentation code, reject provenance and text chunks in bundled PNGs, and guard the plugin's absence of automatic hooks and MCP or LSP servers. The README makes explicit that the plugin configures no servers or hooks and requires no credentials.
 
 ## 0.3.3 - fix only what reproduces, and name the property in the PR
 

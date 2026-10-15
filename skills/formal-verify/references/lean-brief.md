@@ -18,7 +18,7 @@ Every `.lean` file in the project must belong to a library in the lakefile. With
 
 After a proof closes, print differential test vectors with `#eval`. Include boundary inputs and a spread of in-range inputs, with each input and the model's output on one line. Write a test in the target repository's own framework that calls the production function on those inputs and compares its output. A mismatch is a bug in the production code or the transcription; establish which before reporting. State how many vectors agree and the integer widths in both implementations. If the production comparison was not run, say so beside the proof verdict.
 
-When a theorem needs a proof beyond bounded search and the host has [lean-lsp-mcp](https://github.com/oOo0oOo/lean-lsp-mcp), its goal and diagnostics tools can shorten the loop. This plugin neither requires nor configures that server.
+When a theorem needs a proof beyond bounded search and the host offers Lean language-server tools for goals and diagnostics, use them to shorten the loop. This plugin neither requires nor configures such a server.
 
 ## Keep the model small
 

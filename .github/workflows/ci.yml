@@ -51,11 +51,11 @@ jobs:
           use-github-cache: false
           lake-package-directory: skills/formal-verify/examples/lean-template
       - name: Fetch the pinned TLC release
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p "$HOME/.cache/tla"
-          gh release download v1.7.4 --repo tlaplus/tlaplus --pattern tla2tools.jar --output "$HOME/.cache/tla/tla2tools-v1.7.4.jar"
+          source skills/formal-verify/scripts/tlc-tools.sh
+          mkdir -p "$TLC_CACHE"
+          curl -fL --no-progress-meter --retry 3 -o "$TLC_JAR" "https://github.com/tlaplus/tlaplus/releases/download/$TLA_VERSION/tla2tools.jar"
+          check_tlc_jar "$TLC_JAR"
       - name: Install pinned Kani
         run: |
           cargo install --locked kani-verifier --version 0.68.0
