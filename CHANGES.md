@@ -1,5 +1,9 @@
 # Changes
 
+## 0.3.4 - keep image references out of release-note code
+
+Removed the obsolete icon path from a release-note code span. The Claude directory treats bundled image paths in backticks as possible executable references, even in historical prose. The two README images added in 0.3.3 carried signed C2PA provenance manifests from the image generator, whose certificates the directory screened as credentials; the `caBX` chunk is stripped from both, leaving the pixels unchanged. Metadata tests now reject bundled image and font paths in documentation code, reject provenance and text chunks in bundled PNGs, and guard the plugin's absence of automatic hooks and MCP or LSP servers. The README makes explicit that the plugin configures no servers or hooks and requires no credentials.
+
 ## 0.3.3 - fix only what reproduces, and name the property in the PR
 
 The skill fixes only a counter-example that shipped settings can reach, and only with a reproduction unless none is practical. When a unit test for a Lean or Kani counter-example passes on the production code, the agent corrects the model or harness, and the Lean brief permits that re-freeze. A fix PR includes any reproducing test and names the theorem, `#guard`, TLC property or Kani harness that failed. The agent uses a tool the request names and reports what it leaves unchecked.
@@ -36,7 +40,7 @@ Helpers now print `UNAVAILABLE` and exit 3 when TLC or Lean cannot run because a
 
 ## 0.2.4 - no listing fields in `plugin.json`
 
-The Claude `plugin.json` no longer carries `icon`, `documentationUrl`, `supportUrl`, `privacyPolicyUrl`, or `termsOfServiceUrl`. Claude Code ignores all five at load time. The Claude plugin directory read the `icon` path as an image the plugin's code could run and held the version for review. `.claude-plugin/icon.png` stays in the repository.
+The Claude `plugin.json` no longer carries `icon`, `documentationUrl`, `supportUrl`, `privacyPolicyUrl`, or `termsOfServiceUrl`. Claude Code ignores all five at load time. The Claude plugin directory read the icon path as an image the plugin's code could run and held the version for review. The directory icon stays in the repository.
 
 ## 0.2.3 - TLC comes from the user, verified by setup
 

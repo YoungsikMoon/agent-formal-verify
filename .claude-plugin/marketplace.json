@@ -9,7 +9,7 @@
     {
       "name": "agent-formal-verify",
       "source": "./",
-      "version": "0.3.3",
+      "version": "0.3.4",
       "description": "Model-check protocols with TLA+, prove invariants with Lean 4, and check bounded Rust functions with Kani.",
       "keywords": [
         "agent-formal-verify",

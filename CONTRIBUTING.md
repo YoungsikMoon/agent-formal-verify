@@ -34,6 +34,19 @@ Use an unprefixed branch name. Keep each pull request focused on one problem. De
 
 Update both plugin manifests, `package.json`, the Claude marketplace entry and `CHANGES.md` together. `node --test tests/plugin.test.mjs` checks that the versions, descriptions and license declarations agree. Document changes to setup requirements or pinned tools so users know what an update requires.
 
+### Claude directory validation
+
+Validate both the plugin manifest and the marketplace; validating the repository root alone selects the marketplace:
+
+```shell
+claude plugin validate .claude-plugin/plugin.json --strict
+claude plugin validate .claude-plugin/marketplace.json --strict
+```
+
+The [directory checklist](https://claude.com/docs/plugins/pre-submission-checklist) adds checks that the CLI does not run. Use Markdown image syntax for bundled artwork and keep image and font paths out of backticks and code blocks, including historical release notes. The metadata tests check this and guard against adding automatic hooks or servers without a policy review.
+
+For a credential or download-and-run finding, inspect the named file at the commit the portal scanned and trace the actual credential mapping or executed command. The plugin configures no MCP servers or hooks; the Lean brief links to optional tools without installing or configuring them. Generated artwork can carry a signed C2PA manifest in a PNG `caBX` chunk, and the directory screens its certificates as credentials; the metadata tests reject that chunk and other text chunks, so strip them before committing an image. After pushing a fix, re-validate in the portal: an existing report describes only the commit it read, and CLI validation does not clear directory policy holds.
+
 ## Dependency updates
 
 Dependabot opens weekly update PRs for GitHub Actions, the pinned lint hooks and prek. Updates wait seven days after release and must pass CI before review; they are not merged automatically.

@@ -70,7 +70,7 @@ A passing check establishes its stated properties under its assumptions and boun
 
 ## Data handling
 
-The plugin has no server or telemetry. The agent sends selected source excerpts, models and results to its model provider. Helpers run locally and download nothing. Setup verifies a TLC JAR you obtain from the pinned TLA+ release, and Lean preparation installs the pinned toolchain through elan. Install the pinned Kani through Cargo and run its setup command as described in [tool setup](skills/formal-verify/references/setup.md). The plugin's Kani helpers install nothing.
+The plugin configures no MCP servers or hooks, requires no credentials and has no telemetry. The agent sends selected source excerpts, models and results to its model provider. Helpers run locally and download nothing. Setup verifies a TLC JAR you obtain from the pinned TLA+ release, and Lean preparation installs the pinned toolchain through elan. Install the pinned Kani through Cargo and run its setup command as described in [tool setup](skills/formal-verify/references/setup.md). The plugin's Kani helpers install nothing.
 
 ## Contributing
 
