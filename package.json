@@ -1,14 +1,25 @@
 {
   "name": "agent-formal-verify",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Model-check protocols with TLA+, prove invariants with Lean 4, and check bounded Rust functions with Kani.",
   "author": {
     "name": "Michael Denyer",
     "url": "https://github.com/michael-denyer"
   },
   "homepage": "https://github.com/michael-denyer/agent-formal-verify",
-  "repository": "github:michael-denyer/agent-formal-verify",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/michael-denyer/agent-formal-verify.git"
+  },
   "license": "GPL-3.0-only",
+  "files": [
+    "opencode.mjs",
+    "skills/",
+    "!skills/**/.lake/",
+    "LICENSE",
+    "README.md",
+    "CHANGES.md"
+  ],
   "exports": {
     "./server": "./opencode.mjs"
   },

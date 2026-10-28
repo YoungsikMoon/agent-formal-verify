@@ -1,0 +1,53 @@
+name: Publish
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions: {}
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  npm:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing and provenance
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.22.2"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+      - name: Check the tag matches the package version
+        id: version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::Tag $TAG does not match package.json version $version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Test the plugin metadata
+        run: node --test tests/plugin.test.mjs
+      - name: Skip a version that is already published
+        id: published
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          published=$(npm view "agent-formal-verify@$VERSION" version 2>/dev/null || true)
+          if [ "$published" = "$VERSION" ]; then
+            echo "::notice::agent-formal-verify@$VERSION is already on npm"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Publish with provenance
+        if: steps.published.outputs.skip != 'true'
+        run: npm publish --provenance

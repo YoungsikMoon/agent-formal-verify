@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Michael Denyer
 // SPDX-License-Identifier: GPL-3.0-only
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -44,6 +45,19 @@ test("the pi package exposes the skills tree and is discoverable", () => {
   assert.deepEqual(pi.skills, ["./skills"]);
   assert.ok(existsSync(join(root, pi.skills[0], "formal-verify", "SKILL.md")));
   assert.ok(keywords.includes("pi-package"));
+});
+
+test("the npm package ships every runtime file and nothing else from the root", () => {
+  const { files, exports, pi } = manifests[2];
+  assert.deepEqual(files, ["opencode.mjs", "skills/", "!skills/**/.lake/", "LICENSE", "README.md", "CHANGES.md"]);
+  const shipped = ["package.json", ...files.filter((entry) => !entry.startsWith("!")).map((entry) => entry.replace(/\/$/, ""))];
+  const unshipped = [".agents", ".claude-plugin", ".codex-plugin", ".github", ".gitignore", ".markdownlint-cli2.jsonc", ".pre-commit-config.yaml", "assets", "CONTRIBUTING.md", "docs", "tests"];
+  const tracked = new Set(execFileSync("git", ["ls-files"], { cwd: root, encoding: "utf8" }).split("\n").filter(Boolean).map((path) => path.split("/")[0]));
+  const unclassified = [...tracked].filter((entry) => !shipped.includes(entry) && !unshipped.includes(entry));
+  assert.deepEqual(unclassified, [], "add each new root entry to package.json files or to the unshipped list here");
+  for (const target of [...Object.values(exports), ...pi.skills]) {
+    assert.ok(shipped.includes(target.replace(/^\.\//, "")), `${target} is not in package.json files`);
+  }
 });
 
 async function register(entry, existing = []) {

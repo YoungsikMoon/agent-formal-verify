@@ -34,6 +34,8 @@ Use an unprefixed branch name. Keep each pull request focused on one problem. De
 
 Update both plugin manifests, `package.json`, the Claude marketplace entry and `CHANGES.md` together. `node --test tests/plugin.test.mjs` checks that the versions, descriptions and license declarations agree. Document changes to setup requirements or pinned tools so users know what an update requires.
 
+After the release merges, tag the merge commit `v<version>` and push the tag. The publish workflow checks that the tag matches `package.json` and publishes to npm through trusted publishing with provenance. A new file that the Pi package or the OpenCode plugin loads at runtime belongs in the `files` list of `package.json`; the metadata test fails on a root entry that is in neither that list nor its repository-only list.
+
 ### Claude directory validation
 
 Validate both the plugin manifest and the marketplace; validating the repository root alone selects the marketplace:

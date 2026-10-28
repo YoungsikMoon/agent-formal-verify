@@ -36,16 +36,20 @@ codex plugin add agent-formal-verify@agent-formal-verify
 Run in your terminal:
 
 ```shell
-pi install git:github.com/michael-denyer/agent-formal-verify
+pi install npm:agent-formal-verify
 ```
+
+To install from Git instead, use `pi install git:github.com/michael-denyer/agent-formal-verify`.
 
 ### OpenCode
 
 OpenCode 2.2 or later. Run in your terminal:
 
 ```shell
-opencode plugin add 'git+https://github.com/michael-denyer/agent-formal-verify.git'
+opencode plugin add agent-formal-verify
 ```
+
+To install from Git instead, use `opencode plugin add 'git+https://github.com/michael-denyer/agent-formal-verify.git'`.
 
 Run `setup` once to prepare the shared Java, Python, TLC, elan, Lean, Rust and Kani tools. In Claude Code, use `/agent-formal-verify:setup`. In Codex, request the plugin's `setup` skill. In Pi, use `/skill:setup`. In OpenCode, request the `setup` skill. It reuses installed prerequisites and needs no target repository.
 

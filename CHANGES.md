@@ -1,5 +1,9 @@
 # Changes
 
+## 0.4.1 - install from npm
+
+The package is publishable to npm as `agent-formal-verify`, so Pi installs it with `pi install npm:agent-formal-verify` and OpenCode with `opencode plugin add agent-formal-verify`. A `files` allowlist limits the tarball to `opencode.mjs`, `skills/`, the license, the README and the changelog, which drops it from 77 files and 2.86 MB to 34 files and 59 kB; it leaves out the README artwork, tests, CI configuration and the Claude Code and Codex manifests. A Lean build cache under `skills/` stays out. The metadata test pins the allowlist and fails when a new root file is neither shipped nor listed as repository-only. Pushing a `v*` tag runs a workflow that checks the tag against the package version, runs the metadata tests and publishes with npm trusted publishing and provenance; it skips a version that is already on npm. The skills, the OpenCode plugin and the Git installs are unchanged.
+
 ## 0.4.0 - install in OpenCode
 
 The repository is now an OpenCode plugin for OpenCode 2.2 and later. `opencode plugin add 'git+https://github.com/michael-denyer/agent-formal-verify.git'` loads `opencode.mjs` through the package's `./server` export. It reads `skills/*/SKILL.md` and registers `setup` and `formal-verify` with their helpers, templates and references in place, and keeps any skill already registered under the same name. It has no dependencies, runs no commands and makes no network requests. The Pi package and the Claude Code and Codex plugins are unchanged.
