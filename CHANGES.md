@@ -1,5 +1,9 @@
 # Changes
 
+## 0.4.0 - install in OpenCode
+
+The repository is now an OpenCode plugin for OpenCode 2.2 and later. `opencode plugin add 'git+https://github.com/michael-denyer/agent-formal-verify.git'` loads `opencode.mjs` through the package's `./server` export. It reads `skills/*/SKILL.md` and registers `setup` and `formal-verify` with their helpers, templates and references in place, and keeps any skill already registered under the same name. It has no dependencies, runs no commands and makes no network requests. The Pi package and the Claude Code and Codex plugins are unchanged.
+
 ## 0.3.5 - fetch TLC in CI without a token, and name no MCP package
 
 The CI workflow fetched the pinned TLC JAR with the GitHub CLI under the workflow's token, the only credential variable in the repository. The Claude directory scans every tracked file and read that as a credential taken from the environment and sent to a server. The workflow now downloads the release asset with curl and checks it against the pinned SHA256 through the shared helper before anything runs it. The Lean brief no longer links to a Lean language-server MCP package; the directory counts package launchers as download-and-run commands, and that link was the plugin's only reference to installable software. The 0.3.4 strip of the image manifests cleared the image hold and one of two credential findings; the token read was the other.

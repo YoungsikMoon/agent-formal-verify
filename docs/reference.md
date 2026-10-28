@@ -11,6 +11,8 @@ In Codex, type `$` and pick the skill, run `/skills`, or request the skill by na
 
 In Pi, use `/skill:setup` and `/skill:formal-verify`, or request a skill by name. The package ships no Pi extensions, prompts or themes.
 
+In OpenCode, request `setup` or `formal-verify` by name; the agent loads it through the `skill` tool. The plugin's `opencode.mjs` registers the two skills from `skills/` and leaves any existing skill with the same name in place. It adds no tools, commands, agents or MCP servers. It needs OpenCode 2.2 or later; with an older version, use a skills-only installation.
+
 ## Shared installation
 
 To test a local checkout in Claude Code:
@@ -23,6 +25,14 @@ To test a local checkout in Pi:
 
 ```shell
 pi -e /absolute/path/to/agent-formal-verify
+```
+
+To test a local checkout in OpenCode, add it to `plugins` in a project's `opencode.json`:
+
+```json
+{
+  "plugins": ["/absolute/path/to/agent-formal-verify"]
+}
 ```
 
 For a skills-only installation, use `skills/`. Its references, helpers and templates stay inside that tree. Copy both the `setup` and `formal-verify` skills so their references resolve.
@@ -60,6 +70,12 @@ pi update --extensions
 ```
 
 Pin a release by installing `git:github.com/michael-denyer/agent-formal-verify@v0.3.2`; a pinned package does not move on update.
+
+For OpenCode, `opencode plugin check` reports a newer commit on the default branch. To install it:
+
+```shell
+opencode plugin update 'git+https://github.com/michael-denyer/agent-formal-verify.git'
+```
 
 Tool caches survive plugin updates. Run setup again only if a release introduces a new system prerequisite.
 

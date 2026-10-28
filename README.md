@@ -2,12 +2,12 @@
 
 ![Agent formal verify: model protocols with TLA+ and TLC, prove invariants with Lean 4, and check bounded Rust with Kani.](assets/formal-verify-header.png)
 
-<!-- Proportional badge widths use 94%; eight equal gaps fill the remaining 6%. Keep the row contiguous to avoid extra whitespace. -->
+<!-- Proportional badge widths use 93.25%; nine equal gaps fill the remaining 6.75%. Keep the row contiguous to avoid extra whitespace. -->
 <p>
-<a href="https://github.com/michael-denyer/agent-formal-verify/actions/workflows/ci.yml"><img src="https://github.com/michael-denyer/agent-formal-verify/actions/workflows/ci.yml/badge.svg" alt="CI" width="10.17%"><img src="assets/badge-gap.svg" alt="" width="0.75%"></a><a href="CHANGES.md"><img src="https://img.shields.io/github/package-json/v/michael-denyer/agent-formal-verify?color=0969DA" alt="Version" width="10.85%"><img src="assets/badge-gap.svg" alt="" width="0.75%"></a><a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--only-6B7280" alt="License: GPL-3.0-only" width="14.69%"><img src="assets/badge-gap.svg" alt="" width="0.75%"></a><a href="#claude-code"><img src="https://img.shields.io/badge/Claude%20Code-plugin-D97757" alt="Claude Code plugin" width="13.78%"><img src="assets/badge-gap.svg" alt="" width="0.75%"></a><a href="#codex"><img src="https://img.shields.io/badge/Codex-plugin-10A37F" alt="Codex plugin" width="9.94%"><img src="assets/badge-gap.svg" alt="" width="0.75%"></a><a href="#pi"><img src="https://img.shields.io/badge/Pi-package-7C3AED" alt="Pi package" width="8.36%"><img src="assets/badge-gap.svg" alt="" width="0.75%"></a><a href="https://github.com/tlaplus/tlaplus"><img src="https://img.shields.io/badge/TLA%2B-TLC-2E6DB4" alt="TLA+ and TLC" width="7.91%"><img src="assets/badge-gap.svg" alt="" width="0.75%"></a><a href="https://lean-lang.org"><img src="https://img.shields.io/badge/Lean%204-proofs-0F9D9A" alt="Lean 4" width="10.39%"><img src="assets/badge-gap.svg" alt="" width="0.75%"></a><a href="https://github.com/model-checking/kani"><img src="https://img.shields.io/badge/Kani-Rust-B7410E" alt="Kani" width="7.91%"></a>
+<a href="https://github.com/michael-denyer/agent-formal-verify/actions/workflows/ci.yml"><img src="https://github.com/michael-denyer/agent-formal-verify/actions/workflows/ci.yml/badge.svg" alt="CI" width="8.91%"><img src="assets/badge-gap.svg" alt="" width="0.75%"></a><a href="CHANGES.md"><img src="https://img.shields.io/github/package-json/v/michael-denyer/agent-formal-verify?color=0969DA" alt="Version" width="9.5%"><img src="assets/badge-gap.svg" alt="" width="0.75%"></a><a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--only-6B7280" alt="License: GPL-3.0-only" width="12.87%"><img src="assets/badge-gap.svg" alt="" width="0.75%"></a><a href="#claude-code"><img src="https://img.shields.io/badge/Claude%20Code-plugin-D97757" alt="Claude Code plugin" width="12.07%"><img src="assets/badge-gap.svg" alt="" width="0.75%"></a><a href="#codex"><img src="https://img.shields.io/badge/Codex-plugin-10A37F" alt="Codex plugin" width="8.71%"><img src="assets/badge-gap.svg" alt="" width="0.75%"></a><a href="#pi"><img src="https://img.shields.io/badge/Pi-package-7C3AED" alt="Pi package" width="7.33%"><img src="assets/badge-gap.svg" alt="" width="0.75%"></a><a href="#opencode"><img src="https://img.shields.io/badge/OpenCode-plugin-211E1E" alt="OpenCode plugin" width="10.89%"><img src="assets/badge-gap.svg" alt="" width="0.75%"></a><a href="https://github.com/tlaplus/tlaplus"><img src="https://img.shields.io/badge/TLA%2B-TLC-2E6DB4" alt="TLA+ and TLC" width="6.93%"><img src="assets/badge-gap.svg" alt="" width="0.75%"></a><a href="https://lean-lang.org"><img src="https://img.shields.io/badge/Lean%204-proofs-0F9D9A" alt="Lean 4" width="9.11%"><img src="assets/badge-gap.svg" alt="" width="0.75%"></a><a href="https://github.com/model-checking/kani"><img src="https://img.shields.io/badge/Kani-Rust-B7410E" alt="Kani" width="6.93%"></a>
 </p>
 
-A skill for Claude Code, Codex and Pi that implements the targeted formal-verification method [recently promoted by Boris Cherny](https://x.com/bcherny/status/2102543349102338309). The agent models selected parts of your code, checks their properties, maps counter-examples to source lines, and helps reproduce and fix reachable bugs.
+A skill for Claude Code, Codex, Pi and OpenCode that implements the targeted formal-verification method [recently promoted by Boris Cherny](https://x.com/bcherny/status/2102543349102338309). The agent models selected parts of your code, checks their properties, maps counter-examples to source lines, and helps reproduce and fix reachable bugs.
 
 It uses TLA+ and TLC for thread interleavings, shutdown and resource ownership, and Lean 4 for arithmetic, bounds and sequential state transitions. A protocol that depends on arithmetic can use both. For Rust functions with bounded inputs and loops, Kani checks the production code for overflow, invalid memory access, panics and broken invariants.
 
@@ -39,7 +39,15 @@ Run in your terminal:
 pi install git:github.com/michael-denyer/agent-formal-verify
 ```
 
-Run `setup` once to prepare the shared Java, Python, TLC, elan, Lean, Rust and Kani tools. In Claude Code, use `/agent-formal-verify:setup`. In Codex, request the plugin's `setup` skill. In Pi, use `/skill:setup`. It reuses installed prerequisites and needs no target repository.
+### OpenCode
+
+OpenCode 2.2 or later. Run in your terminal:
+
+```shell
+opencode plugin add 'git+https://github.com/michael-denyer/agent-formal-verify.git'
+```
+
+Run `setup` once to prepare the shared Java, Python, TLC, elan, Lean, Rust and Kani tools. In Claude Code, use `/agent-formal-verify:setup`. In Codex, request the plugin's `setup` skill. In Pi, use `/skill:setup`. In OpenCode, request the `setup` skill. It reuses installed prerequisites and needs no target repository.
 
 For local checkouts and skills-only installs, see [shared installation](docs/reference.md#shared-installation).
 
@@ -49,7 +57,7 @@ For local checkouts and skills-only installs, see [shared installation](docs/ref
 Use formal-verify to check this queue's shutdown protocol and window arithmetic.
 ```
 
-In Claude Code, use `/agent-formal-verify:formal-verify`. In Codex, type `$formal-verify` or request the plugin's `formal-verify` skill. In Pi, use `/skill:formal-verify`.
+In Claude Code, use `/agent-formal-verify:formal-verify`. In Codex, type `$formal-verify` or request the plugin's `formal-verify` skill. In Pi, use `/skill:formal-verify`. In OpenCode, request the `formal-verify` skill.
 
 ## How it works
 
@@ -70,7 +78,7 @@ A passing check establishes its stated properties under its assumptions and boun
 
 ## Data handling
 
-The plugin configures no MCP servers or hooks, requires no credentials and has no telemetry. The agent sends selected source excerpts, models and results to its model provider. Helpers run locally and download nothing. Setup verifies a TLC JAR you obtain from the pinned TLA+ release, and Lean preparation installs the pinned toolchain through elan. Install the pinned Kani through Cargo and run its setup command as described in [tool setup](skills/formal-verify/references/setup.md). The plugin's Kani helpers install nothing.
+The plugin configures no MCP servers or hooks, requires no credentials and has no telemetry. Its OpenCode entry point, `opencode.mjs`, only reads the bundled skill files and registers them; it runs no commands and makes no network requests. The agent sends selected source excerpts, models and results to its model provider. Helpers run locally and download nothing. Setup verifies a TLC JAR you obtain from the pinned TLA+ release, and Lean preparation installs the pinned toolchain through elan. Install the pinned Kani through Cargo and run its setup command as described in [tool setup](skills/formal-verify/references/setup.md). The plugin's Kani helpers install nothing.
 
 ## Contributing
 
