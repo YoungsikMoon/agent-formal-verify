@@ -117,6 +117,46 @@ test("the OpenCode plugin reads skills checked out with CRLF line endings", asyn
   }
 });
 
+async function registerCopy(edit) {
+  const dir = mkdtempSync(join(tmpdir(), "opencode-skills-"));
+  try {
+    copyFileSync(fileURLToPath(opencode), join(dir, "opencode.mjs"));
+    for (const id of bundled()) {
+      mkdirSync(join(dir, "skills", id), { recursive: true });
+      copyFileSync(join(skills, id, "SKILL.md"), join(dir, "skills", id, "SKILL.md"));
+    }
+    edit(join(dir, "skills"));
+    return await register(pathToFileURL(join(dir, "opencode.mjs")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("the OpenCode plugin skips a skills folder without a SKILL.md", async () => {
+  const registered = await registerCopy((dir) => mkdirSync(join(dir, "scratch")));
+  assert.deepEqual([...registered.keys()].sort(), bundled());
+});
+
+test("the OpenCode plugin rejects a SKILL.md without a name or description and names the file", async () => {
+  for (const key of ["name", "description"]) {
+    await assert.rejects(
+      registerCopy((dir) => {
+        const file = join(dir, "setup", "SKILL.md");
+        writeFileSync(file, readFileSync(file, "utf8").replace(new RegExp(`^${key}: .*\\n`, "m"), ""));
+      }),
+      new RegExp(`setup.SKILL\\.md has no ${key}`),
+    );
+  }
+});
+
+test("the OpenCode plugin reads a single-quoted description", async () => {
+  const registered = await registerCopy((dir) => {
+    const file = join(dir, "setup", "SKILL.md");
+    writeFileSync(file, readFileSync(file, "utf8").replace(/^description: .*$/m, "description: 'Prepare the tools; it''s quoted.'"));
+  });
+  assert.equal(registered.get("setup").description, "Prepare the tools; it's quoted.");
+});
+
 test("the plugin has no automatic hooks or servers that could forward credentials", () => {
   for (const manifest of manifests.slice(0, 2)) {
     for (const field of ["hooks", "mcpServers", "lspServers"]) {

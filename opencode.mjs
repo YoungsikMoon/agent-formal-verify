@@ -5,27 +5,33 @@ import { fileURLToPath } from "node:url";
 
 const skills = new URL("./skills/", import.meta.url);
 
-function parse(text) {
+function parse(text, path) {
   const match = text.replaceAll("\r\n", "\n").match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-  if (!match) throw new Error("SKILL.md has no frontmatter");
+  if (!match) throw new Error(`${path} has no frontmatter`);
   const field = (key) => {
     const value = match[1].match(new RegExp(`^${key}: (.+)$`, "m"))?.[1];
-    return value?.startsWith('"') ? JSON.parse(value) : value;
+    if (value === undefined) throw new Error(`${path} has no ${key}`);
+    if (value.startsWith('"')) return JSON.parse(value);
+    if (value.startsWith("'")) return value.slice(1, -1).replaceAll("''", "'");
+    return value;
   };
   return { name: field("name"), description: field("description"), content: match[2] };
 }
 
 async function load() {
   const entries = await readdir(skills, { withFileTypes: true });
-  return Promise.all(
+  const found = await Promise.all(
     entries
       .filter((entry) => entry.isDirectory())
       .map(async ({ name }) => {
-        const file = new URL(`${name}/SKILL.md`, skills);
-        const skill = parse(await readFile(file, "utf8"));
-        return { id: name, ...skill, autoinvoke: true, path: fileURLToPath(file) };
+        const path = fileURLToPath(new URL(`${name}/SKILL.md`, skills));
+        const text = await readFile(path, "utf8").catch((error) => {
+          if (error.code !== "ENOENT") throw error;
+        });
+        return text && { id: name, ...parse(text, path), autoinvoke: true, path };
       }),
   );
+  return found.filter(Boolean);
 }
 
 export default {

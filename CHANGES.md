@@ -1,5 +1,9 @@
 # Changes
 
+## 0.4.2 - OpenCode skips stray folders and rejects incomplete skills
+
+The OpenCode plugin read every folder under `skills/` as a skill, so one folder without a `SKILL.md`, such as a scratch folder in a local checkout, failed the plugin and registered neither skill. It now skips such folders, as Pi does. A `SKILL.md` without a `name` or `description` used to register with that field undefined; the plugin now fails with the file's path and the missing field. A single-quoted `description` lost nothing but kept its quotes; it now reads as YAML does. The two bundled skills register exactly as before.
+
 ## 0.4.1 - install from npm
 
 The package is publishable to npm as `agent-formal-verify`, so Pi installs it with `pi install npm:agent-formal-verify` and OpenCode with `opencode plugin add agent-formal-verify`. A `files` allowlist limits the tarball to `opencode.mjs`, `skills/`, the license, the README and the changelog, which drops it from 77 files and 2.86 MB to 34 files and 59 kB; it leaves out the README artwork, tests, CI configuration and the Claude Code and Codex manifests. A Lean build cache under `skills/` stays out. The metadata test pins the allowlist and fails when a new root file is neither shipped nor listed as repository-only. Pushing a `v*` tag runs a workflow that checks the tag against the package version, runs the metadata tests and publishes with npm trusted publishing and provenance; it skips a version that is already on npm. The skills, the OpenCode plugin and the Git installs are unchanged.
