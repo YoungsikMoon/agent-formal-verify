@@ -203,6 +203,26 @@ test("bundled images carry no provenance or text chunks", () => {
   }
 });
 
+// Each pattern made the directory scanner hold a release until 0.4.3 removed it. The scanner reads this file too, and a
+// pattern that spelled its token re-raised the hold, so each pattern breaks its token with a character class.
+test("the tree has no construct the directory scanner reads as a credential read or a download-and-run command", () => {
+  const rules = [
+    { files: (path) => path.endsWith(".mjs"), pattern: /\bke[y]\b/, why: "rename it; the directory scanner reads an identifier with this name as a credential" },
+    { files: (path) => !/\.(?:png|svg|jar|lock)$/.test(path), pattern: /envir[o]n\[|process\.en[v]\[|dict\(os\.envir[o]n/, why: "read one variable by a literal name, with get in Python or a property in JavaScript; the directory scanner reads a subscripted or copied environment as a credential read" },
+    { files: (path) => path.endsWith(".md") && (/^(?:skills|docs)\//.test(path) || ["README.md", "CONTRIBUTING.md"].includes(path)), pattern: /\bev[a]l\b/, why: "reword it; the directory scanner reads this word in documentation as a download-and-run command" },
+  ];
+  const tracked = execFileSync("git", ["ls-files"], { cwd: root, encoding: "utf8" }).split("\n").filter(Boolean);
+  const hits = [];
+  for (const { files, pattern, why } of rules) {
+    for (const path of tracked.filter(files)) {
+      for (const [index, line] of read(path).split("\n").entries()) {
+        if (pattern.test(line)) hits.push(`${path}:${index + 1}: ${why}`);
+      }
+    }
+  }
+  assert.deepEqual(hits, []);
+});
+
 test("skills declare their names and link only to files inside the skills tree", () => {
   for (const file of walk(skills).filter((path) => path.endsWith(".md"))) {
     const text = readFileSync(file, "utf8");
