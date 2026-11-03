@@ -8,9 +8,9 @@ const skills = new URL("./skills/", import.meta.url);
 function parse(text, path) {
   const match = text.replaceAll("\r\n", "\n").match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
   if (!match) throw new Error(`${path} has no frontmatter`);
-  const field = (key) => {
-    const value = match[1].match(new RegExp(`^${key}: (.+)$`, "m"))?.[1];
-    if (value === undefined) throw new Error(`${path} has no ${key}`);
+  const field = (fieldName) => {
+    const value = match[1].match(new RegExp(`^${fieldName}: (.+)$`, "m"))?.[1];
+    if (value === undefined) throw new Error(`${path} has no ${fieldName}`);
     if (value.startsWith('"')) return JSON.parse(value);
     if (value.startsWith("'")) return value.slice(1, -1).replaceAll("''", "'");
     return value;

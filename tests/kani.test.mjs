@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { afterEach, test } from "node:test";
 import { command, excludes, fixture, includes, logs, removeFixtures, run } from "./helpers.mjs";
@@ -14,40 +14,10 @@ const bundle = (dir) => join(dir, `kani/kani-${KANI}`);
 const python = spawnSync("python3", ["-c", "import sys; print(sys.executable)"], { encoding: "utf8" }).stdout.trim();
 const writeJson = (path, value) => writeFileSync(path, JSON.stringify(value));
 const calls = (dir) => readFileSync(join(dir, "calls"), "utf8");
-const driverEnv = (dir) => JSON.parse(readFileSync(join(dir, "env.json"), "utf8"));
 const runKani = (dir, script, args = [], extra = {}) => run(dir, script, args, { KANI_HOME: join(dir, "kani"), ...extra });
 
 // Behaves as the pinned kani-driver, configured by driver.json and report.json in the fixture directory.
-const DRIVER = `import json, os, pathlib, sys
-args = sys.argv[1:]
-base = pathlib.Path(os.environ["TASK_TRACE"]).parent
-config = json.loads((base / "driver.json").read_text())
-with open(os.environ["TASK_TRACE"], "a") as log:
-    log.write(" ".join(args) + "\\n")
-(base / "env.json").write_text(json.dumps(dict(os.environ)))
-if args == ["--version"]:
-    print(f"Kani Rust Verifier {config['version']} (cargo plugin)\\nCBMC 6.11.0")
-    sys.exit()
-target = pathlib.Path(args[args.index("--target-dir") + 1])
-if "list" in args:
-    if config.get("deleteDriverAfterList"):
-        (pathlib.Path(os.environ["KANI_HOME"]) / f"kani-{config['version']}/bin/kani-driver").unlink()
-    target.mkdir(parents=True, exist_ok=True)
-    harnesses = config["harnesses"]
-    pathlib.Path("kani-list.json").write_text(json.dumps(
-        {"kani-version": config["version"], "file-version": "0.1", "standard-harnesses": {"src/lib.rs": list(harnesses)}}))
-    metadata = config.get("metadata", {"proof_harnesses": [
-        {"pretty_name": name, "attributes": {"unwind_value": bound}} for name, bound in harnesses.items()]})
-    (target / "crate.kani-metadata.json").write_text(json.dumps(metadata))
-elif config.get("compileError"):
-    print("error: compilation failed")
-    sys.exit(1)
-else:
-    report = json.loads((base / "report.json").read_text())
-    pathlib.Path(args[args.index("--export-json") + 1]).write_text(json.dumps(report))
-    print("Concrete playback unit test fixture")
-    sys.exit(1 if report["verification_results"]["results"][0]["status"] == "Failure" else 0)
-`;
+const DRIVER = readFileSync(join(logs, "kani-driver.py"), "utf8");
 
 function kaniBundle(config = {}) {
   const dir = fixture();
@@ -201,11 +171,10 @@ test("Kani uses the complete pinned bundle without a registered installer", () =
 });
 
 test("Kani keeps rustup toolchain libraries a parent cargo exports away from the bundled toolchain", () => {
-  const { dir } = kaniFixture();
+  const { dir } = kaniFixture("success", { expectLibraryPath: "/opt/keep/lib" });
   const loader = process.platform === "darwin" ? "DYLD_FALLBACK_LIBRARY_PATH" : "LD_LIBRARY_PATH";
   const result = runKani(dir, "kani.py", ["check", dir], { [loader]: "/home/.rustup/toolchains/stable/lib:/opt/keep/lib" });
   assert.equal(result.status, 0, result.stdout + result.stderr);
-  assert.equal(driverEnv(dir)[loader], "/opt/keep/lib");
 });
 
 for (const outcome of ["success", "failure"]) {
@@ -322,10 +291,9 @@ for (const script of ["kani-check.sh", "mutate.py"]) {
   });
 
   test(`Kani ${script} keeps a relative home valid in temporary work directories`, () => {
-    const { dir, name } = kaniFixture(script === "mutate.py" ? "failure" : "success");
+    const { dir, name } = kaniFixture(script === "mutate.py" ? "failure" : "success", { expectResolvedHome: true });
     const result = runKani(dir, script, [target(dir, name)], { KANI_HOME: relative(process.cwd(), join(dir, "kani")) });
     assert.equal(result.status, 0, result.stdout + result.stderr + calls(dir));
-    assert.equal(driverEnv(dir).KANI_HOME, realpathSync(join(dir, "kani")));
     excludes(calls(dir), "auto-install");
     includes(result.stdout, script === "mutate.py" ? "DETECTED guard" : "SUMMARY 1 of 1 harnesses passed");
   });

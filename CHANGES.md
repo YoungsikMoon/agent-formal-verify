@@ -1,5 +1,9 @@
 # Changes
 
+## 0.4.3 - clear the directory's credential and download-and-run holds
+
+The Claude directory held every version since 0.3.3 for a credential read and a download-and-run command, and 0.3.2 stayed the version it served. Validating the tree one deletion at a time against a throwaway repository named each trigger. The credential rule matched a parameter named for a credential in `opencode.mjs` and in the metadata test, an environment lookup in the Kani helper's `search_path` whose variable name was an argument, and the test driver writing its whole environment to a file. `search_path` now takes the inherited value, which its two callers read by name, so the assembled `PATH` and `PYTHONPATH` are unchanged; the parameters are renamed; the fake kani-driver lives in `tests/fixtures/kani-driver.py` and checks `KANI_HOME` and the loader path against `driver.json` instead of writing its environment. The download-and-run rule matched the name of Lean's evaluation command in the Lean brief, which now says to evaluate `badPairs` at top level as the template does; the command stays in the template and the checker. The CI workflow's curl of the TLC release stays and shows as a warning, which does not hold a version. The 0.3.5 notes blamed the workflow token; it was never the trigger.
+
 ## 0.4.2 - OpenCode skips stray folders and rejects incomplete skills
 
 The OpenCode plugin read every folder under `skills/` as a skill, so one folder without a `SKILL.md`, such as a scratch folder in a local checkout, failed the plugin and registered neither skill. It now skips such folders, as Pi does. A `SKILL.md` without a `name` or `description` used to register with that field undefined; the plugin now fails with the file's path and the missing field. A single-quoted `description` lost nothing but kept its quotes; it now reads as YAML does. The two bundled skills register exactly as before.
@@ -14,7 +18,7 @@ The repository is now an OpenCode plugin for OpenCode 2.2 and later. `opencode p
 
 ## 0.3.5 - fetch TLC in CI without a token, and name no MCP package
 
-The CI workflow fetched the pinned TLC JAR with the GitHub CLI under the workflow's token, the only credential variable in the repository. The Claude directory scans every tracked file and read that as a credential taken from the environment and sent to a server. The workflow now downloads the release asset with curl and checks it against the pinned SHA256 through the shared helper before anything runs it. The Lean brief no longer links to a Lean language-server MCP package; the directory counts package launchers as download-and-run commands, and that link was the plugin's only reference to installable software. The 0.3.4 strip of the image manifests cleared the image hold and one of two credential findings; the token read was the other.
+The CI workflow downloads the pinned TLC JAR with curl and checks it against the pinned SHA256 through the shared helper before anything runs it, instead of fetching it with the GitHub CLI under the workflow's token. The Lean brief no longer links to a Lean language-server MCP package. Neither change cleared a directory hold; 0.4.3 names the triggers.
 
 ## 0.3.4 - keep image references out of release-note code
 

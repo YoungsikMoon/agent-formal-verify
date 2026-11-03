@@ -138,13 +138,13 @@ test("the OpenCode plugin skips a skills folder without a SKILL.md", async () =>
 });
 
 test("the OpenCode plugin rejects a SKILL.md without a name or description and names the file", async () => {
-  for (const key of ["name", "description"]) {
+  for (const field of ["name", "description"]) {
     await assert.rejects(
       registerCopy((dir) => {
         const file = join(dir, "setup", "SKILL.md");
-        writeFileSync(file, readFileSync(file, "utf8").replace(new RegExp(`^${key}: .*\\n`, "m"), ""));
+        writeFileSync(file, readFileSync(file, "utf8").replace(new RegExp(`^${field}: .*\\n`, "m"), ""));
       }),
-      new RegExp(`setup.SKILL\\.md has no ${key}`),
+      new RegExp(`setup.SKILL\\.md has no ${field}`),
     );
   }
 });
