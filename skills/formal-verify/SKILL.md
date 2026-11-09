@@ -1,6 +1,6 @@
 ---
 name: formal-verify
-description: "Model-check thread protocols with TLA+ and TLC, prove sequential invariants with Lean 4, and check bounded Rust functions with Kani. Map counter-examples to source locations, reproductions and fixes, and keep the models in CI. Use for /agent-formal-verify:formal-verify, formal verification, model checking, Lean proofs, Kani, bounded Rust verification, or concurrency bugs that runtime tests cannot reproduce."
+description: "Model-check thread protocols with TLA+ and TLC, prove sequential invariants with Lean 4, and check bounded Rust functions with Kani. Map counter-examples to source locations, reproductions and fixes, and keep the models in CI. Bring existing models back in line after the code changes. Use for /agent-formal-verify:formal-verify, formal verification, model checking, Lean proofs, Kani, bounded Rust verification, rechecking models after code changes, or concurrency bugs that runtime tests cannot reproduce."
 ---
 
 # Formal verify
@@ -22,6 +22,17 @@ A thread protocol that depends on arithmetic such as `slot = item mod window` ne
 Use the tool the user names. When the table gives another tool for part of the target, report what the named tool leaves unchecked.
 
 ## 1. Pick the targets
+
+When the repository has models from an earlier run, start with them. Find every model, wherever it lives: `.tla` specs with their `.matrix` and `.mutations` files, Lean models with their `.mutations` and `.statements` files, and Kani harness files. Each is a row in the table this step writes.
+
+Take each model's sync commit from the `Source read at` line in its header when `git merge-base --is-ancestor <commit> HEAD` succeeds, and otherwise from `git log -1 --format=%H -- <model files>`. Find where the functions and shared variables it covers live now with `git grep -l -w -e <name> -- . ':(exclude)<model file>'`, one exclude per model file. When none is found, mark the row for retirement as step 5 says. Otherwise read `git log -p <sync>..HEAD -- <source files> <files found>`, which follows code that moved to another file. A model with no sync commit has no log to read, so compare it with the code in full.
+
+Record the sync commit, the commits read and the answers to two questions in the row:
+
+- Does the model still describe the code as it is now? If not, the model changes.
+- Does a doc comment, test, changelog entry or commit message in those commits say the guarantee changed? If so, the property changes with it, citing that evidence. If not, the property stays, and a failure after the update is a bug candidate.
+
+Then search for new targets in code no model covers, unless the user asked only to recheck the existing models.
 
 Search with `rg` for `pthread_cond`, `pthread_mutex`, `atomic_`, `std::condition_variable`, `sync.Cond`, `chan`, `select`, `asyncio.Condition`, `Semaphore`, `atexit` and `setjmp`. Also search for protocol state names such as `ready`, `stop`, `done`, `finished`, `pending`, `inflight`, `head`, `tail` and `exiting`. Classify each hit:
 
@@ -54,6 +65,8 @@ The helpers:
 - The Rust checker, [`scripts/kani-check.sh`](scripts/kani-check.sh), runs the pinned Kani on the crate's proof harnesses. It reports each harness's unwind bound and check count, rejects failed checks and unsatisfied cover conditions, and prints concrete playback tests when available. Copy [`examples/kani-template/`](examples/kani-template/src/lib.rs) for a bounded-queue example.
 - The mutation runner, [`scripts/mutate.py`](scripts/mutate.py), takes a model's `<Name>.mutations` file and applies each listed bug to a temporary copy of the model. It prints DETECTED or MISSED per mutation with what failed, UNCOVERED for a TLA+ property or Kani harness that no mutation targets, and a SUMMARY line. All three templates include a mutations file.
 
+Run every existing model's checker and mutations once, before any agent changes a model, and record the results. For a TLA+ or Lean model a pass shows only that the old description still holds; a Kani harness runs the code as it is now. A model that still describes the code needs no agent. When it passes, refresh its header as step 5 says; when it fails, take the failure through step 4. A Kani compile error means the harness no longer fits the code, so give it to an agent. A check that passes here and fails after the update was passing on a stale description; say so in the reply.
+
 ## 3. Model one target per agent
 
 Spawn one agent per target, in parallel when supported. Use the host runtime's agent tools and follow the user's model configuration when selecting agents. An agent does not see this skill. Its brief contains:
@@ -61,7 +74,8 @@ Spawn one agent per target, in parallel when supported. Use the host runtime's a
 - the target's row from the table, with its source files and line ranges;
 - the model's name, `<Name>`, and for a Lean target the absolute path of the Lake project, or for Kani the absolute path of the crate;
 - the absolute path of this skill's directory as `<skill-dir>`, and any `JAVA` setting;
-- the instruction to read `<skill-dir>/references/tla-brief.md` for a protocol, `<skill-dir>/references/lean-brief.md` for arithmetic, or `<skill-dir>/references/rust-brief.md` for a Rust function, in full and to follow it.
+- the instruction to read `<skill-dir>/references/tla-brief.md` for a protocol, `<skill-dir>/references/lean-brief.md` for arithmetic, or `<skill-dir>/references/rust-brief.md` for a Rust function, in full and to follow it;
+- for an existing model, its files.
 
 Name the brief file and leave its text out of the prompt. The [TLA+ brief](references/tla-brief.md), the [Lean brief](references/lean-brief.md) and the [Rust brief](references/rust-brief.md) hold the modelling requirements, the files to write, the commands to run and what to report. If delegation is unavailable, read the brief for each target and model the targets yourself, one at a time.
 
@@ -86,10 +100,12 @@ Add CI only when the user asked for it or the repository already runs models in 
 
 Each fact about a model has one home:
 
-- The model's header comment names the source files and line ranges it follows and its assumptions. Refresh them when the code moves.
+- The model's header comment names the source files and line ranges it follows, the functions and shared variables it covers, the commit they were read at as `Source read at <commit>`, and its assumptions. Refresh them when the code moves.
 - The mutations file lists the bugs the model detects.
-- The project's testing documentation, when it has any, has one row per model: what it checks, in the words the Reply section asks for, and its boundary configuration.
+- The project's testing documentation, when it has any, has one row per model: what it checks, in the words the Reply section asks for, and its boundary configuration. Update the row when the model changes.
 - A pull request description tells its bug's story once and links to the model.
+
+When a model's covered code is gone, propose retiring it in the reply. With the user's agreement, delete its files, including a Lean model's `.statements` record, its CI steps and its row in the testing documentation.
 
 Do not add a report file per bug, and do not paste run tables or traces into several documents. Write `<skill-dir>` for the installed skill in any committed command; a path from this machine does not work for the next reader.
 
@@ -104,7 +120,7 @@ A passing TLA+ or Lean model establishes its stated properties under its assumpt
 Write the reply, and any pull request or document, for a reader who knows the code and has used none of these tools.
 
 1. Start with what was found, in the code's terms. For each bug, say what goes wrong for a caller or user, the code events in order with `file:line`, whether the shipped settings can reach it, how to reproduce it, and the fix or proposed fix, with a PR link when one was opened.
-2. Give a table with one row per target: what was checked, as a sentence about the code, and the verdict. Label each counter-example `reproduced`, `reachable at shipped settings`, or `model-only`. State each property as what it guarantees, such as "the bar never shows 100% before the work finishes". Add the model's name for it in backticks only so the reader can find it.
+2. Give a table with one row per target: what was checked, as a sentence about the code, and the verdict. Label each counter-example `reproduced`, `reachable at shipped settings`, or `model-only`. State each property as what it guarantees, such as "the bar never shows 100% before the work finishes". Add the model's name for it in backticks only so the reader can find it. For a model from an earlier run, add whether it was unchanged or updated, or is proposed for retirement, with its sync commit and the commits read for it.
 3. Say what each kind of evidence means where it first appears:
 
    | Evidence | Meaning to give |

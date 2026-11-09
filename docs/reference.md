@@ -69,7 +69,7 @@ For Pi:
 pi update --extensions
 ```
 
-Pin a release by installing `npm:agent-formal-verify@0.4.3` or `git:github.com/michael-denyer/agent-formal-verify@v0.4.3`; a pinned package does not move on update.
+Pin a release by installing `npm:agent-formal-verify@0.4.4` or `git:github.com/michael-denyer/agent-formal-verify@v0.4.4`; a pinned package does not move on update.
 
 For OpenCode, `opencode plugin check` reports a newer release on npm, or a newer commit on the default branch for a Git install. To install it, pass the specifier you installed:
 
@@ -78,13 +78,15 @@ opencode plugin update agent-formal-verify
 opencode plugin update 'git+https://github.com/michael-denyer/agent-formal-verify.git'
 ```
 
-Pin a release in OpenCode by installing `agent-formal-verify@0.4.3`.
+Pin a release in OpenCode by installing `agent-formal-verify@0.4.4`.
 
 Tool caches survive plugin updates. Run setup again only if a release introduces a new system prerequisite.
 
 ## Scope and evidence
 
 The [verification skill](../skills/formal-verify/SKILL.md) directs the agent to select protocols and sequential invariants, transcribe their behaviour, and check their properties. It uses TLC to explore bounded protocol instances, Lean to prove properties for every size, and Kani to check actual Rust functions within stated input and unwind bounds. Kani requires satisfied cover conditions so an over-constrained harness cannot pass without reaching its boundary state.
+
+In a repository that already has models, it first reruns them and reads the commits that touched each model's source since the commit recorded as `Source read at` in the model's header, following code that moved to another file. It updates the models that no longer describe the code, proposes retiring those whose code is gone, and reports each as unchanged, updated or proposed for retirement beside its verdict.
 
 A helper that cannot run a tool prints `UNAVAILABLE` and exits 3. Report that target as "not checked" with the remedy, never as a pass or a model failure. Failed checks exit 1 and usage errors exit 2.
 

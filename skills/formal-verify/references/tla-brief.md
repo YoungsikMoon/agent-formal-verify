@@ -4,7 +4,11 @@ Follow this brief to model one thread protocol with TLA+ and TLC. Your task give
 
 ## Files
 
-Write `tla/<Name>.tla`, `tla/<Name>.matrix` and `tla/<Name>.mutations` in the target repository, or the same names in its existing model directory. Start from the three `BoundedQueue` files in `<skill-dir>/examples/tla-template/`. Write no other file, so parallel agents share none. Name the top-level formula `Spec`. The header comment names the source files and line ranges the spec follows and each assumption it makes.
+Write `tla/<Name>.tla`, `tla/<Name>.matrix` and `tla/<Name>.mutations` in the target repository, or the same names in its existing model directory. Start a new model from the three `BoundedQueue` files in `<skill-dir>/examples/tla-template/`, and edit an existing model's files in place. Write no other file, so parallel agents share none. Name the top-level formula `Spec`. The header comment names the source files and line ranges the spec follows, the functions and shared variables it covers, the commit they were read at as `Source read at <commit>`, and each assumption it makes.
+
+## Existing model
+
+The row in your task gives the commits since the model was last synced and says whether any of them changed the guarantee on purpose. Change the spec where it no longer describes the code. Change a property only where the row cites that evidence. Add a mutation for each step, branch or wait the update adds, naming the property that must fail on it. Update the header to the code you read.
 
 ## Model
 

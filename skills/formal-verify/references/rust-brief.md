@@ -2,7 +2,8 @@
 
 Use Kani for a Rust function whose inputs and loops can be bounded. Call the real
 function from one `#[kani::proof]` harness per property. Do not transcribe its
-implementation. Start from [the bounded queue template](../examples/kani-template/src/lib.rs).
+implementation. Edit an existing harness in place, and start a new one from
+[the bounded queue template](../examples/kani-template/src/lib.rs).
 
 ## Files
 
@@ -13,9 +14,21 @@ Coordinate any shared crate or module wiring with its owner. Keep production
 files untouched unless the user has authorized a production fix.
 
 Cite the production source paths and line numbers that each property models in
-the harness header. List caller constraints, bounds and stub assumptions there,
-with source citations or an explicit statement that each is an assumption.
-Call the production function through its real crate or module interface.
+the harness header, the functions it calls, and the commit they were read at as
+`Source read at <commit>`. List caller constraints, bounds and stub assumptions
+there, with source citations or an explicit statement that each is an
+assumption. Call the production function through its real crate or module
+interface.
+
+## Existing model
+
+The row in your task gives the commits since the harness was last synced and
+says whether any of them changed the guarantee on purpose. The harness calls the
+production code, so drift shows as a compile error or a failed check. Update its
+bounds, stubs, contracts and covers where they no longer fit the code. Change a
+property only where the row cites that evidence. Add a mutation, with `detects`
+naming the harness, for each branch or step the update adds. Update the header
+to the code you read.
 
 ## Model
 
