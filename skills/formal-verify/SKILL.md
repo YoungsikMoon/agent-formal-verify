@@ -25,7 +25,12 @@ Use the tool the user names. When the table gives another tool for part of the t
 
 When the repository has models from an earlier run, start with them. Find every model, wherever it lives: `.tla` specs with their `.matrix` and `.mutations` files, Lean models with their `.mutations` and `.statements` files, and Kani harness files. Each is a row in the table this step writes.
 
-Take each model's sync commit from the `Source read at` line in its header when `git merge-base --is-ancestor <commit> HEAD` succeeds, and otherwise from `git log -1 --format=%H -- <model files>`. Find where the functions and shared variables it covers live now with `git grep -l -w -e <name> -- . ':(exclude)<model file>'`, one exclude per model file. When none is found, mark the row for retirement as step 5 says. Otherwise read `git log -p <sync>..HEAD -- <source files> <files found>`, which follows code that moved to another file. A model with no sync commit has no log to read, so compare it with the code in full.
+Take each model's sync commit from the `Source read at` line in its header when `git merge-base --is-ancestor <commit> HEAD` succeeds, and otherwise from `git log -1 --format=%H -- <model files>`. A model with no sync commit has no log to read, so compare it with the code in full. For the others, collect every path the covered code has had since the sync commit:
+
+- Follow each source file in the header through the renames that `git log -M --diff-filter=R --name-status --format= <sync>..HEAD` lists, and keep every path on the way, not only the first and last.
+- Add the files where the functions and shared variables it covers live now, from `git grep -l -w -e <name> -- . ':(exclude)<model file>'`. Exclude only model files that hold no production code; a Kani harness written inside a production file stays in the search.
+
+Then read `git log -p <sync>..HEAD -- <paths collected>`, which includes commits made at an intermediate path and code that moved to another file. A covered name that `git grep` finds nowhere was renamed, moved or deleted. Find the commit that removed it with `git log -S <name> <sync>..HEAD -- <paths collected>` and read all of it with `git show <commit>`. When it renamed or moved the code, follow the code to its new name and file. Mark the row for retirement as step 5 says only when the code is gone.
 
 Record the sync commit, the commits read and the answers to two questions in the row:
 
