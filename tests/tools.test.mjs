@@ -569,6 +569,18 @@ test("the mutation runner reports a frozen public Lean theorem that no mutation 
   assert.equal(result.status, 1);
 });
 
+test("the mutation runner rejects a Lean detects line, which would cover a theorem that never fails, before running Lean", () => {
+  const { dir, project } = leanProject();
+  writeFileSync(join(project, "Model/Step.lean"), "def step (n : Nat) : Nat := n + 1\ntheorem vacuous (n : Nat) (h : n < 0) : n < step n := absurd h (Nat.not_lt_zero n)\n");
+  freezeRecord(join(project, "Model/Step.statements"), ["vacuous"]);
+  writeFileSync(join(project, "Model/Step.mutations"), "mutation no step\ndetects theorem vacuous\n- n + 1\n+ n\n");
+  command(dir, "elan", 'echo elan >> "$TASK_TRACE"; exit 0');
+  const result = run(dir, "mutate.py", [join(project, "Model/Step.mutations")]);
+  assert.equal(result.stdout, "FAIL mutation 'no step': Lean mutations take no detects line; the runner names the theorems that fail\n");
+  assert.equal(result.status, 1);
+  assert.equal(existsSync(join(dir, "calls")), false);
+});
+
 test("the mutation runner rejects a Lean model without a statements record before running Lean", () => {
   const { dir, project } = leanProject();
   writeFileSync(join(project, "Model/Step.lean"), "def step (n : Nat) : Nat := n + 1\n");
