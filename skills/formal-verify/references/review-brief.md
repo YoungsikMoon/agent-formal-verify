@@ -27,7 +27,7 @@ Write each finding that a bug in the model can show as a mutation, in the syntax
 
 ```text
 mutation <what goes wrong, in the code's terms>
-detects <property or fully qualified harness, for TLA+ and Kani only>
+detects <property or fully qualified harness; TLA+ and Kani only, never Lean>
 - <a line of the model file, quoted exactly; together the lines occur once>
 + <the line with the bug>
 ```
