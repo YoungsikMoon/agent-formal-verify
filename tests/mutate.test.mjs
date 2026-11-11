@@ -125,17 +125,29 @@ function leanMutations(model, frozen, baseline, mutations, outcomes) {
   const config = join(dir, "analysis.json");
   writeFileSync(config, JSON.stringify({ baseline, mutations: outcomes }));
   command(dir, "elan", [
-    '[ "$4" = "--version" ] && exit 0',
+    '[ "$4" = "--version" ] && { echo version >> "$TASK_TRACE"; exit 0; }',
+    'echo analyse >> "$TASK_TRACE"',
     'python3 "$TASK_LEAN_DRIVER" "$TASK_LEAN_CONFIG" "${@: -1}"',
   ].join("\n"));
   const result = run(dir, "mutate.py", [join(project, "Model/Step.mutations")], {
     TASK_LEAN_DRIVER: join(logs, "lean-analysis.py"), TASK_LEAN_CONFIG: config,
   });
   assert.equal(readFileSync(join(project, "Model/Step.lean"), "utf8"), model);
-  return { ...result, modelPath: realpathSync(join(project, "Model/Step.lean")) };
+  return {
+    ...result,
+    modelPath: realpathSync(join(project, "Model/Step.lean")),
+    calls: readFileSync(join(dir, "calls"), "utf8").trim().split("\n"),
+  };
 }
 
 const noStep = "mutation no step\n- n + 1\n+ n\n";
+
+test("the Lean mutation runner checks the toolchain once for the whole run", () => {
+  const decls = [leanDecl("Step.property", 2)];
+  const { calls } = leanMutations("def step (n : Nat) : Nat := n + 1\n", ["Step.property"], leanAnalysis(decls),
+    noStep + "\nmutation same step\n- n + 1\n+ 1 + n\n", [{ text: ":= n\n", analysis: leanAnalysis(decls, [leanError(2)]) }]);
+  assert.deepEqual(calls, ["version", "analyse", "analyse", "analyse"]);
+});
 
 test("Lean mutation coverage preserves fully qualified identities and private exemptions", () => {
   const model = [

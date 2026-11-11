@@ -48,7 +48,8 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from enum import Enum
 from functools import partial
 from pathlib import Path
 
@@ -59,12 +60,6 @@ import kani
 
 HERE = Path(__file__).resolve().parent
 LEAN_NOTE = "NOTE Lean detections mean existing proofs fail, not that theorem statements are false or hypotheses satisfiable."
-# Fails the same way as lean-check.sh when the pin is not ready, without installing it.
-LEAN = """source "$1/lean-tools.sh"
-toolchain=$(lean_pin "$2") || { status=$?; echo "$toolchain"; exit "$status"; }
-lean_pin_ready "$toolchain" || { echo "UNAVAILABLE $toolchain is not ready; run bash $1/setup.sh lean $2"; exit 3; }
-elan run "$toolchain" lake --dir "$2" env lean --run "$1/lean-mutations.lean" "$3"
-"""
 
 
 DIRECTIVES = ("detects", "only", "-", "+")
@@ -79,7 +74,7 @@ class Language:
     runner: Callable
 
 
-@dataclass
+@dataclass(frozen=True)
 class Mutation:
     label: str
     detects: str
@@ -87,7 +82,19 @@ class Mutation:
     old: str
     new: str
     source: str
-    failed: list = field(default_factory=list)
+
+
+class Verdict(Enum):
+    DETECTED = "DETECTED"
+    MISSED = "MISSED"
+    ERROR = "ERROR"
+
+
+@dataclass(frozen=True)
+class Result:
+    verdict: Verdict
+    detail: str = ""
+    covers: frozenset = frozenset()
 
 
 def stop(message, status=1):
@@ -163,8 +170,8 @@ def matrix_of(spec):
 
 
 def check_tla(spec, kinds, reaches, runs, mutation, work):
-    """Return (verdict, detail) from the mutation's property or reach checks."""
-    kind = kinds.get(mutation.detects, "")
+    """Check the mutation's property or reach operator; the mutation covers the name it detects."""
+    kind, covers = kinds.get(mutation.detects, ""), frozenset({mutation.detects})
     for module in spec.parent.glob("*.tla"):
         (work / module.name).write_text(module.read_text(encoding="utf-8"), encoding="utf-8")
     (work / spec.name).write_text(mutation.source, encoding="utf-8")
@@ -174,34 +181,42 @@ def check_tla(spec, kinds, reaches, runs, mutation, work):
     command = ["bash", str(HERE / "tlc-matrix.sh"), str(matrix), *([mutation.only] if mutation.only else [])]
     done = subprocess.run(command, capture_output=True, text=True, check=False)
     if done.returncode == 3:
-        return "UNAVAILABLE", done.stdout + done.stderr
+        print((done.stdout + done.stderr).strip())
+        sys.exit(3)
     if done.returncode == 0:
-        return "MISSED", ""
+        return Result(Verdict.MISSED, covers=covers)
     if mutation.detects in reaches:
         prefix = f"FAIL {spec.stem} reach {mutation.detects.removeprefix('reach:')} "
         suffix = ": the model never reaches this state"
         for line in done.stdout.splitlines():
             if line.startswith(prefix) and line.endswith(suffix):
                 label = line[len(prefix):-len(suffix)]
-                return "DETECTED", f"{mutation.detects} fails in run '{label}' (the model never reaches this state)"
-        return "ERROR", done.stdout + done.stderr
+                return Result(Verdict.DETECTED, f"{mutation.detects} fails in run '{label}' (the model never reaches this state)", covers)
+        return Result(Verdict.ERROR, done.stdout + done.stderr)
     # A deadlock stops the system for good, so it breaks a temporal property but no invariant.
     signs = ["violated"] + (["Deadlock reached"] if kind.startswith("PROPERT") else [])
     for line in done.stdout.splitlines():
         if line.startswith("FAIL ") and any(sign in line for sign in signs):
             run, _, error = line.removeprefix(f"FAIL {spec.stem} ").partition(": Error: ")
-            return "DETECTED", f"{mutation.detects} fails in run '{run}' ({error.rstrip('.')})"
-    return "ERROR", done.stdout + done.stderr
+            return Result(Verdict.DETECTED, f"{mutation.detects} fails in run '{run}' ({error.rstrip('.')})", covers)
+    return Result(Verdict.ERROR, done.stdout + done.stderr)
 
 
-def lean_analysis(model, project):
-    """Get Lean's declaration identities and error positions, never infer them from source text."""
-    done = subprocess.run(["bash", "-c", LEAN, "bash", str(HERE), str(project), str(model)],
+def lean_toolchain(project):
+    """Return the project's Lean pin once it is ready; lean-tools.sh owns the check and its remedy."""
+    done = subprocess.run(["bash", "-c", 'source "$1/lean-tools.sh" && lean_ready_pin "$2"', "bash", str(HERE), str(project)],
                           capture_output=True, text=True, check=False)
+    if done.returncode:
+        print(done.stdout.strip())
+        sys.exit(done.returncode)
+    return done.stdout.strip()
+
+
+def lean_analysis(model, project, toolchain):
+    """Get Lean's declaration identities and error positions, never infer them from source text."""
+    done = subprocess.run(["elan", "run", toolchain, "lake", "--dir", str(project), "env", "lean", "--run",
+                           str(HERE / "lean-mutations.lean"), str(model)], capture_output=True, text=True, check=False)
     output = done.stdout + done.stderr
-    if done.returncode == 3:
-        print(output.strip())
-        sys.exit(3)
     records = [line.removeprefix("AFV_LEAN ") for line in done.stdout.splitlines() if line.startswith("AFV_LEAN ")]
     if done.returncode != 0 or len(records) != 1:
         stop(f"Lean declaration analysis did not complete:\n{output.strip()}")
@@ -234,13 +249,13 @@ def original_location(model, mutation, position):
     return f"{model}:{line}{suffix}"
 
 
-def check_lean(model, project, mutation, work):
-    """Attribute every error to an elaborated theorem or a parsed guard/example command."""
+def check_lean(model, project, toolchain, mutation, work):
+    """Attribute every error to an elaborated theorem or a parsed guard/example command; the mutation covers those."""
     copy = work / model.name
     copy.write_text(mutation.source, encoding="utf-8")
-    analysis = lean_analysis(copy, project)
+    analysis = lean_analysis(copy, project, toolchain)
     if not analysis["errors"]:
-        return "MISSED", ""
+        return Result(Verdict.MISSED)
     failed = []
     for error in analysis["errors"]:
         position = [error["pos"]["line"], error["pos"]["column"]]
@@ -251,23 +266,22 @@ def check_lean(model, project, mutation, work):
                      for cmd in analysis["commands"]
                      if cmd["property"] and contains(cmd, position)]
         if error["fileName"] != str(copy) or not names:
-            return "ERROR", f"{error['fileName']}:{position[0]}:{position[1]}: {error['data']}"
+            return Result(Verdict.ERROR, f"{error['fileName']}:{position[0]}:{position[1]}: {error['data']}")
         failed.extend(name for name in names if name not in failed)
-    mutation.failed = failed
-    return "DETECTED", "proof/check fails: " + "; ".join(failed)
+    return Result(Verdict.DETECTED, "proof/check fails: " + "; ".join(failed), frozenset(failed))
 
 
 def check_rust(model, project, verifier, bounds, mutation, work):
-    """Return (verdict, detail) from Kani on the named harness in a mutated copy of the crate."""
-    copy = work / "crate"
+    """Run Kani on the named harness in a mutated copy of the crate; the mutation covers that harness."""
+    copy, covers = work / "crate", frozenset({mutation.detects})
     shutil.copytree(project, copy, ignore=shutil.ignore_patterns("target", ".git"))
     (copy / model.relative_to(project)).write_text(mutation.source, encoding="utf-8")
     outcome = kani.verify(copy, work, verifier, mutation.detects, bounds[mutation.detects])
     if outcome.verdict is kani.Verdict.PASS:
-        return "MISSED", ""
+        return Result(Verdict.MISSED, covers=covers)
     if outcome.verdict is kani.Verdict.REFUTED:
-        return "DETECTED", "; ".join(outcome.failures)
-    return "ERROR", "\n".join(outcome.failures) + "\n" + outcome.output
+        return Result(Verdict.DETECTED, "; ".join(outcome.failures), covers)
+    return Result(Verdict.ERROR, "\n".join(outcome.failures) + "\n" + outcome.output)
 
 
 def project_root(model, *markers):
@@ -282,28 +296,31 @@ def tla_runner(spec, mutations):
     return set(kinds), partial(check_tla, spec, kinds, reaches, runs)
 
 
-def lean_theorems(model, project):
-    """Intersect frozen identities with Lean's public source declarations, including their namespaces."""
+def frozen_theorems(model):
+    """Return the theorem names the model's .statements record holds."""
     record = model.with_suffix(".statements")
     if not record.is_file():
         stop(f"{record} is missing; freeze the model with lean-check.sh --freeze before checking its mutations")
     try:
-        frozen = {entry["name"] for entry in json.loads(record.read_text(encoding="utf-8"))["declarations"]
-                  if entry["kind"] == "theorem"}
+        return {entry["name"] for entry in json.loads(record.read_text(encoding="utf-8"))["declarations"]
+                if entry["kind"] == "theorem"}
     except (OSError, ValueError, KeyError, TypeError) as error:
         stop(f"invalid statements record {record}: {error}")
-    analysis = lean_analysis(model, project)
-    if analysis["errors"]:
-        stop(f"unmutated Lean model does not elaborate: {analysis['errors'][0]['data']}")
-    return {"theorem " + decl["name"] for decl in analysis["declarations"]
-            if decl["theorem"] and not decl["private"] and decl["name"] in frozen}
 
 
 def lean_runner(model, mutations):
+    """Target the frozen theorems that Lean finds public in the source, including their namespaces."""
     project = project_root(model, "lakefile.toml", "lakefile.lean")
     if project is None:
         stop(f"{model} is in no Lake project")
-    return lean_theorems(model, project), partial(check_lean, model, project)
+    frozen = frozen_theorems(model)
+    toolchain = lean_toolchain(project)
+    analysis = lean_analysis(model, project, toolchain)
+    if analysis["errors"]:
+        stop(f"unmutated Lean model does not elaborate: {analysis['errors'][0]['data']}")
+    targets = {"theorem " + decl["name"] for decl in analysis["declarations"]
+               if decl["theorem"] and not decl["private"] and decl["name"] in frozen}
+    return targets, partial(check_lean, model, project, toolchain)
 
 
 def rust_runner(model, mutations):
@@ -349,18 +366,15 @@ def main():
     mutations = [make_mutation(label, directives, model, text, language) for label, directives in parse(path)]
     targets, check = language.runner(model, mutations)
 
-    detected = 0
+    detected, covered = 0, set()
     for mutation in mutations:
         with tempfile.TemporaryDirectory() as work:
-            verdict, detail = check(mutation, Path(work))
-        if verdict == "UNAVAILABLE":
-            print(detail.strip())
-            sys.exit(3)
-        if verdict == "ERROR":
-            stop(f"mutation '{mutation.label}' did not reach a verdict:\n{detail.strip()}")
-        detected += verdict == "DETECTED"
-        print(f"{verdict} {mutation.label}" + (f": {detail}" if detail else ""))
-    covered = {mutation.detects for mutation in mutations}.union(*(mutation.failed for mutation in mutations))
+            result = check(mutation, Path(work))
+        if result.verdict is Verdict.ERROR:
+            stop(f"mutation '{mutation.label}' did not reach a verdict:\n{result.detail.strip()}")
+        detected += result.verdict is Verdict.DETECTED
+        covered |= result.covers
+        print(f"{result.verdict.value} {mutation.label}" + (f": {result.detail}" if result.detail else ""))
     uncovered = sorted(targets - covered)
     for name in uncovered:
         print(f"UNCOVERED {name}")
