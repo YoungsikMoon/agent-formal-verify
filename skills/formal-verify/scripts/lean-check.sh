@@ -72,9 +72,13 @@ sorries=$(grep -cE "$sorry" "$log")
 audit_status=0
 : > "$work/audit.out"
 if [ "$status" -eq 0 ]; then
+  # The module of each source, in source order, for the audit's imports and the frozen records.
+  unexpected=$(grep -v '/\.lake/build/lib/lean/.*\.olean$' "$work/oleans")
+  [ -z "$unexpected" ] || { echo "FAIL $scope: cannot identify the module of $unexpected"; exit 1; }
+  sed -e 's|^.*/\.lake/build/lib/lean/||' -e 's|\.olean$||' -e 's|/|.|g' "$work/oleans" > "$work/modules"
   {
     echo "import Lean"
-    sed -e 's|^.*/\.lake/build/lib/lean/||' -e 's|\.olean$||' -e 's|/|.|g' -e 's|^|import |' "$work/oleans"
+    sed 's|^|import |' "$work/modules"
     cat << 'EOF'
 open Lean in
 private def hasTheoremParent (env : Environment) : Name → Bool
@@ -155,7 +159,7 @@ if [ "$status" -ne 0 ] || { [ "$freeze" -eq 0 ] && [ "$sorries" -ne 0 ]; } || [ 
 fi
 mode=check
 [ "$freeze" -eq 0 ] || mode=freeze
-python3 "$HERE/lean-statements.py" "$mode" "$toolchain" "$work/audit.out" "$work/oleans" "${sources[@]}" > "$work/statements.out"
+python3 "$HERE/lean-statements.py" "$mode" "$toolchain" "$work/audit.out" "$work/modules" "${sources[@]}" > "$work/statements.out"
 statement_status=$?
 if [ "$statement_status" -ne 0 ]; then
   echo "FAIL $scope: frozen statements differ or could not be checked"
