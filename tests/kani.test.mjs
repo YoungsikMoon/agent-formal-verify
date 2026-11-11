@@ -13,7 +13,7 @@ const KANI = "0.68.0";
 const bundle = (dir) => join(dir, `kani/kani-${KANI}`);
 const python = spawnSync("python3", ["-c", "import sys; print(sys.executable)"], { encoding: "utf8" }).stdout.trim();
 const writeJson = (path, value) => writeFileSync(path, JSON.stringify(value));
-const calls = (dir) => readFileSync(join(dir, "calls"), "utf8");
+const calls = (dir) => (existsSync(join(dir, "calls")) ? readFileSync(join(dir, "calls"), "utf8") : "");
 const runKani = (dir, script, args = [], extra = {}) => run(dir, script, args, { KANI_HOME: join(dir, "kani"), ...extra });
 
 // Behaves as the pinned kani-driver, configured by driver.json and report.json in the fixture directory.
@@ -188,14 +188,14 @@ for (const outcome of ["success", "failure"]) {
   });
 }
 
-for (const [label, line, error] of [
-  ["typo", "detects proofs::missing", "unknown harness 'proofs::missing'"],
-  ["limited", "only small", "Rust mutations do not support 'only'"],
+for (const [label, directives, error] of [
+  ["typo", () => "detects proofs::missing", "unknown harness 'proofs::missing'"],
+  ["limited", (name) => `detects ${name}\nonly small`, "Rust mutations do not support 'only'"],
 ]) {
   test(`Rust mutation rejects ${label} before verifying any mutation`, () => {
     const { dir, name } = kaniFixture("failure");
     const mutations = rustMutation(dir, name);
-    writeFileSync(mutations, readFileSync(mutations, "utf8") + `mutation ${label}\ndetects ${name}\n${line}\n- old\n+ new\n`);
+    writeFileSync(mutations, readFileSync(mutations, "utf8") + `mutation ${label}\n${directives(name)}\n- old\n+ new\n`);
     const result = runKani(dir, "mutate.py", [mutations]);
     assert.equal(result.status, 1, result.stdout + result.stderr);
     includes(result.stdout, error);

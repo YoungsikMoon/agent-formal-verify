@@ -79,6 +79,22 @@ test("the mutation runner rejects text that is absent or repeated, and a propert
   }
 });
 
+test("the mutation runner checks every mutation's lines before it runs any model", () => {
+  const valid = ["mutation valid", "detects Small", "- x + 1", "+ x + 2 \\* BUG"];
+  const cases = [
+    [["mutation stale", "detects Small", "- y + 1", "+ y"], "mutation 'stale': its - text occurs 0 times"],
+    [["mutation silent", "- x + 1", "+ x"], "mutation 'silent' has no detects line"],
+    [["mutation twice", "detects Small", "detects Small", "- x + 1", "+ x"], "mutation 'twice' has two detects lines"],
+  ];
+  for (const [mutation, message] of cases) {
+    const { dir, result } = tlaMutations(["check INVARIANTS Small"], [...valid, ...mutation]);
+    assert.equal(result.status, 1);
+    includes(result.stdout, message);
+    excludes(result.stdout, "DETECTED");
+    assert.equal(existsSync(join(dir, "calls")), false);
+  }
+});
+
 function freezeRecord(path, theorems) {
   const declarations = theorems.map((name) => ({ name, kind: "theorem" }));
   writeFileSync(path, JSON.stringify({ declarations }));
@@ -240,6 +256,18 @@ test("the mutation runner rejects a Lean detects line, which would cover a theor
   command(dir, "elan", 'echo elan >> "$TASK_TRACE"; exit 0');
   const result = run(dir, "mutate.py", [join(project, "Model/Step.mutations")]);
   assert.equal(result.stdout, "FAIL mutation 'no step': Lean mutations take no detects line; the runner names the theorems that fail\n");
+  assert.equal(result.status, 1);
+  assert.equal(existsSync(join(dir, "calls")), false);
+});
+
+test("the mutation runner rejects a Lean only line, which limits TLA+ runs alone, before running Lean", () => {
+  const { dir, project } = leanProject();
+  writeFileSync(join(project, "Model/Step.lean"), "def step (n : Nat) : Nat := n + 1\n");
+  freezeRecord(join(project, "Model/Step.statements"), []);
+  writeFileSync(join(project, "Model/Step.mutations"), "mutation no step\nonly n=1\n- n + 1\n+ n\n");
+  command(dir, "elan", 'echo elan >> "$TASK_TRACE"; exit 0');
+  const result = run(dir, "mutate.py", [join(project, "Model/Step.mutations")]);
+  assert.equal(result.stdout, "FAIL mutation 'no step': Lean mutations do not support 'only'\n");
   assert.equal(result.status, 1);
   assert.equal(existsSync(join(dir, "calls")), false);
 });

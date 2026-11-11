@@ -34,6 +34,10 @@ Mutations file (a line starting with # is a comment):
                             consecutive lines must occur exactly once
   + <text>                  a line of the replacement; none deletes the text
 
+A TLA+ or Rust mutation needs one detects line, and a Lean mutation takes
+none. The runner reads every mutation and applies it to the model's text
+before it runs any tool, so a malformed mutation stops the run first.
+
 Usage: mutate.py <Name.mutations>
   The environment settings of tlc-matrix.sh apply to TLA+ mutations.
 """
@@ -43,6 +47,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
@@ -62,13 +67,26 @@ elan run "$toolchain" lake --dir "$2" env lean --run "$1/lean-mutations.lean" "$
 """
 
 
+DIRECTIVES = ("detects", "only", "-", "+")
+SINGLE = ("detects", "only")
+
+
+@dataclass(frozen=True)
+class Language:
+    name: str
+    needs_detects: bool
+    takes_only: bool
+    runner: Callable
+
+
 @dataclass
 class Mutation:
     label: str
-    detects: str = ""
-    only: str = ""
-    old: list = field(default_factory=list)
-    new: list = field(default_factory=list)
+    detects: str
+    only: str
+    old: str
+    new: str
+    source: str
     failed: list = field(default_factory=list)
 
 
@@ -78,21 +96,18 @@ def stop(message, status=1):
 
 
 def parse(path):
-    if not path.is_file():
-        stop(f"{path} does not exist")
+    """Return each mutation's label with its directives as (keyword, rest) pairs, in file order."""
     mutations = []
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         if not line.strip() or line.startswith("#"):
             continue
         keyword, _, rest = line.partition(" ")
         if keyword == "mutation":
-            mutations.append(Mutation(rest.strip()))
+            mutations.append((rest.strip(), []))
         elif not mutations:
             stop(f"{path}:{number}: '{line}' before any mutation line")
-        elif keyword in ("detects", "only"):
-            setattr(mutations[-1], keyword, rest.strip())
-        elif keyword in ("-", "+"):
-            (mutations[-1].old if keyword == "-" else mutations[-1].new).append(rest)
+        elif keyword in DIRECTIVES:
+            mutations[-1][1].append((keyword, rest))
         else:
             stop(f"{path}:{number}: unknown directive: {line}")
     if not mutations:
@@ -100,12 +115,25 @@ def parse(path):
     return mutations
 
 
-def mutated(model, mutation):
-    text, old = model.read_text(encoding="utf-8"), "\n".join(mutation.old)
+def make_mutation(label, directives, model, text, language):
+    """Check one mutation's directives against its language and apply it to the model's text."""
+    lines = {keyword: [rest for word, rest in directives if word == keyword] for keyword in DIRECTIVES}
+    for keyword in SINGLE:
+        if len(lines[keyword]) > 1:
+            stop(f"mutation '{label}' has two {keyword} lines")
+    if lines["detects"] and not language.needs_detects:
+        stop(f"mutation '{label}': {language.name} mutations take no detects line; the runner names the theorems that fail")
+    if language.needs_detects and not lines["detects"]:
+        stop(f"mutation '{label}' has no detects line")
+    if lines["only"] and not language.takes_only:
+        stop(f"mutation '{label}': {language.name} mutations do not support 'only'")
+    old = "\n".join(lines["-"])
     count = text.count(old) if old else 0
     if count != 1:
-        stop(f"mutation '{mutation.label}': its - text occurs {count} times in {model}, want 1")
-    return text.replace(old, "\n".join(mutation.new))
+        stop(f"mutation '{label}': its - text occurs {count} times in {model}, want 1")
+    detects, only = (lines[keyword][0].strip() if lines[keyword] else "" for keyword in SINGLE)
+    new = "\n".join(lines["+"])
+    return Mutation(label, detects, only, old, new, text.replace(old, new))
 
 
 def matrix_of(spec):
@@ -139,7 +167,7 @@ def check_tla(spec, kinds, reaches, runs, mutation, work):
     kind = kinds.get(mutation.detects, "")
     for module in spec.parent.glob("*.tla"):
         (work / module.name).write_text(module.read_text(encoding="utf-8"), encoding="utf-8")
-    (work / spec.name).write_text(mutated(spec, mutation), encoding="utf-8")
+    (work / spec.name).write_text(mutation.source, encoding="utf-8")
     matrix = work / spec.with_suffix(".matrix").name
     checks = reaches.get(mutation.detects, [f"check {kind} {mutation.detects}"])
     matrix.write_text("\n".join([f"spec {spec.name}", *checks, *runs]) + "\n", encoding="utf-8")
@@ -191,12 +219,11 @@ def contains(item, position):
     return item["start"] <= position < item["end"]
 
 
-def original_location(model, mutation, source, position):
+def original_location(model, mutation, position):
     """Map an unchanged command back across the one replacement; label inserted commands explicitly."""
-    original = model.read_text(encoding="utf-8")
-    old, new = "\n".join(mutation.old), "\n".join(mutation.new)
+    original, old, new = model.read_text(encoding="utf-8"), mutation.old, mutation.new
     start = original.index(old)
-    offset = sum(len(line) + 1 for line in source.split("\n")[:position[0] - 1]) + position[1]
+    offset = sum(len(line) + 1 for line in mutation.source.split("\n")[:position[0] - 1]) + position[1]
     if offset < start:
         original_offset, suffix = offset, ""
     elif offset >= start + len(new):
@@ -210,8 +237,7 @@ def original_location(model, mutation, source, position):
 def check_lean(model, project, mutation, work):
     """Attribute every error to an elaborated theorem or a parsed guard/example command."""
     copy = work / model.name
-    source = mutated(model, mutation)
-    copy.write_text(source, encoding="utf-8")
+    copy.write_text(mutation.source, encoding="utf-8")
     analysis = lean_analysis(copy, project)
     if not analysis["errors"]:
         return "MISSED", ""
@@ -221,7 +247,7 @@ def check_lean(model, project, mutation, work):
         names = ["theorem " + decl["name"] for decl in analysis["declarations"]
                  if decl["theorem"] and contains(decl, position)]
         if not names:
-            names = [f"{cmd['property']} at {original_location(model, mutation, source, cmd['start'])}"
+            names = [f"{cmd['property']} at {original_location(model, mutation, cmd['start'])}"
                      for cmd in analysis["commands"]
                      if cmd["property"] and contains(cmd, position)]
         if error["fileName"] != str(copy) or not names:
@@ -235,7 +261,7 @@ def check_rust(model, project, verifier, bounds, mutation, work):
     """Return (verdict, detail) from Kani on the named harness in a mutated copy of the crate."""
     copy = work / "crate"
     shutil.copytree(project, copy, ignore=shutil.ignore_patterns("target", ".git"))
-    (copy / model.relative_to(project)).write_text(mutated(model, mutation), encoding="utf-8")
+    (copy / model.relative_to(project)).write_text(mutation.source, encoding="utf-8")
     outcome = kani.verify(copy, work, verifier, mutation.detects, bounds[mutation.detects])
     if outcome.verdict is kani.Verdict.PASS:
         return "MISSED", ""
@@ -277,9 +303,6 @@ def lean_runner(model, mutations):
     project = project_root(model, "lakefile.toml", "lakefile.lean")
     if project is None:
         stop(f"{model} is in no Lake project")
-    for mutation in mutations:
-        if mutation.detects:
-            stop(f"mutation '{mutation.label}': Lean mutations take no detects line; the runner names the theorems that fail")
     return lean_theorems(model, project), partial(check_lean, model, project)
 
 
@@ -300,26 +323,31 @@ def rust_runner(model, mutations):
     for mutation in mutations:
         if mutation.detects not in bounds:
             stop(f"mutation '{mutation.label}': unknown harness '{mutation.detects}'")
-        if mutation.only:
-            stop("Rust mutations do not support 'only'")
     return set(bounds), partial(check_rust, model, project, verifier, bounds)
 
 
-# Each runner validates the mutations, then returns the names they must cover and a check for one mutation.
+# Each runner checks the names the mutations detect, then returns the names they must cover and a check for one mutation.
 # A TLA+ or Rust mutation covers the name it detects; a Lean mutation covers the theorems that fail on it.
-RUNNERS = {".tla": tla_runner, ".lean": lean_runner, ".rs": rust_runner}
+LANGUAGES = {
+    ".tla": Language("TLA+", needs_detects=True, takes_only=True, runner=tla_runner),
+    ".lean": Language("Lean", needs_detects=False, takes_only=False, runner=lean_runner),
+    ".rs": Language("Rust", needs_detects=True, takes_only=False, runner=rust_runner),
+}
 
 
 def main():
     if len(sys.argv) != 2:
         stop("usage: mutate.py <Name.mutations>", 2)
     path = Path(sys.argv[1]).resolve()
-    mutations = parse(path)
-    models = [path.with_suffix(suffix) for suffix in RUNNERS]
+    if not path.is_file():
+        stop(f"{path} does not exist")
+    models = [path.with_suffix(suffix) for suffix in LANGUAGES]
     model = next((model for model in models if model.is_file()), None)
     if model is None:
         stop(f"no {', '.join(model.name for model in models[:-1])} or {models[-1].name} beside {path}")
-    targets, check = RUNNERS[model.suffix](model, mutations)
+    language, text = LANGUAGES[model.suffix], model.read_text(encoding="utf-8")
+    mutations = [make_mutation(label, directives, model, text, language) for label, directives in parse(path)]
+    targets, check = language.runner(model, mutations)
 
     detected = 0
     for mutation in mutations:

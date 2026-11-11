@@ -6,6 +6,8 @@ Lean mutation coverage now reads declaration identities and source ranges from t
 
 Lean mutation results explicitly measure whether existing proofs break; they do not establish that a statement is false or its hypotheses can hold. The skill reports those evidence gaps separately. Existing properties may be corrected and re-frozen when the main thread accepts source-backed specification evidence, even when production code is unchanged; unsupported weakening remains prohibited.
 
+The mutation runner reads and applies every mutation before it runs any tool. A mutation whose replaced text does not occur exactly once in the model used to be found only when its turn came, after every earlier mutation had run its checker; it now stops the run first. A TLA+ or Rust mutation without a `detects` line, and a mutation with two `detects` or two `only` lines, now fail by name instead of reporting a property named by an empty string or keeping the last line. A Lean mutation with an `only` line now fails instead of ignoring it. Because these checks run first, a malformed mutations file fails before a missing tool reports `UNAVAILABLE`.
+
 ## 0.4.8 - pin Lean 4.35.0
 
 The Lean template pins Lean 4.35.0 in place of 4.34.1. The template records the same 34 declarations with the same statement types under both versions. Lean 4.35.0 builds the bodies of three generated `match_1` matchers differently, so their value fingerprints changed, and the template's statements are re-frozen. A project copied from the template keeps its own pin. After its `lean-toolchain` changes, the checker asks for a review and a fresh `--freeze`, as before. The checker still supports pins from Lean 4.20.0.
