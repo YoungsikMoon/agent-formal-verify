@@ -191,10 +191,27 @@ def contains(item, position):
     return item["start"] <= position < item["end"]
 
 
+def original_location(model, mutation, source, position):
+    """Map an unchanged command back across the one replacement; label inserted commands explicitly."""
+    original = model.read_text(encoding="utf-8")
+    old, new = "\n".join(mutation.old), "\n".join(mutation.new)
+    start = original.index(old)
+    offset = sum(len(line) + 1 for line in source.split("\n")[:position[0] - 1]) + position[1]
+    if offset < start:
+        original_offset, suffix = offset, ""
+    elif offset >= start + len(new):
+        original_offset, suffix = offset + len(old) - len(new), ""
+    else:
+        original_offset, suffix = start, " (mutation replacement)"
+    line = original.count("\n", 0, original_offset) + 1
+    return f"{model}:{line}{suffix}"
+
+
 def check_lean(model, project, mutation, work):
     """Attribute every error to an elaborated theorem or a parsed guard/example command."""
     copy = work / model.name
-    copy.write_text(mutated(model, mutation), encoding="utf-8")
+    source = mutated(model, mutation)
+    copy.write_text(source, encoding="utf-8")
     analysis = lean_analysis(copy, project)
     if not analysis["errors"]:
         return "MISSED", ""
@@ -204,7 +221,8 @@ def check_lean(model, project, mutation, work):
         names = ["theorem " + decl["name"] for decl in analysis["declarations"]
                  if decl["theorem"] and contains(decl, position)]
         if not names:
-            names = [f"{cmd['property']} at line {cmd['start'][0]}" for cmd in analysis["commands"]
+            names = [f"{cmd['property']} at {original_location(model, mutation, source, cmd['start'])}"
+                     for cmd in analysis["commands"]
                      if cmd["property"] and contains(cmd, position)]
         if error["fileName"] != str(copy) or not names:
             return "ERROR", f"{error['fileName']}:{position[0]}:{position[1]}: {error['data']}"

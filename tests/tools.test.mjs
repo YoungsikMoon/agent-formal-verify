@@ -533,7 +533,7 @@ function leanMutations(model, frozen, baseline, mutations, outcomes) {
     TASK_LEAN_DRIVER: join(logs, "lean-analysis.py"), TASK_LEAN_CONFIG: config,
   });
   assert.equal(readFileSync(join(project, "Model/Step.lean"), "utf8"), model);
-  return result;
+  return { ...result, modelPath: realpathSync(join(project, "Model/Step.lean")) };
 }
 
 const noStep = "mutation no step\n- n + 1\n+ n\n";
@@ -566,10 +566,12 @@ test("a failing Lean guard or example cannot cover an unrelated theorem", () => 
   const decls = [leanDecl("Step.vacuous", 2)];
   const commands = [{ property: "#guard", start: [3, 0], end: [4, 0] },
     { property: "example", start: [4, 0], end: [5, 0] }];
-  const result = leanMutations("def step (n : Nat) : Nat := n + 1\n", ["Step.vacuous"],
+  const model = "def step (n : Nat) : Nat := n + 1\n"
+    + "theorem vacuous : True := trivial\n#guard step 0 == 1\nexample : step 0 = 1 := rfl\n";
+  const result = leanMutations(model, ["Step.vacuous"],
     leanAnalysis(decls), noStep,
     [{ text: ":= n\n", analysis: leanAnalysis(decls, [leanError(3), leanError(4)], commands) }]);
-  assert.equal(result.stdout, "DETECTED no step: proof/check fails: #guard at line 3; example at line 4\n"
+  assert.equal(result.stdout, `DETECTED no step: proof/check fails: #guard at ${result.modelPath}:3; example at ${result.modelPath}:4\n`
     + "UNCOVERED theorem Step.vacuous\n" + leanNote
     + "SUMMARY 1 of 1 mutations detected, 1 properties without a mutation\n");
   assert.equal(result.status, 1);
@@ -593,6 +595,30 @@ test("Lean mutations use the mutated declaration ranges after a multiline replac
     [{ text: "-- extra line", analysis: leanAnalysis([leanDecl("grows", 3)], [leanError(3)]) }]);
   assert.equal(result.status, 0, result.stdout);
   includes(result.stdout, "proof/check fails: theorem grows");
+});
+
+test("Lean command locations refer to the original model after lines are inserted or removed", () => {
+  for (const [original, replacement, mutatedLine] of [["n + 1", "n\n-- extra line", 3],
+    ["n + 1\n-- separator", "n", 2]]) {
+    const model = `def step (n : Nat) : Nat := ${original}\n#guard step 0 == 1\n`;
+    const originalLine = model.split("\n").findIndex((line) => line.startsWith("#guard")) + 1;
+    const commands = [{ property: "#guard", start: [mutatedLine, 0], end: [mutatedLine + 1, 0] }];
+    const edits = original.split("\n").map((line) => "- " + line)
+      .concat(replacement.split("\n").map((line) => "+ " + line)).join("\n");
+    const result = leanMutations(model, [], leanAnalysis([]), `mutation change lines\n${edits}\n`,
+      [{ text: ":= n\n", analysis: leanAnalysis([], [leanError(mutatedLine)], commands) }]);
+    assert.equal(result.status, 0, result.stdout);
+    includes(result.stdout, `#guard at ${result.modelPath}:${originalLine}\n`);
+  }
+});
+
+test("Lean locations label commands created inside a mutation replacement", () => {
+  const commands = [{ property: "#guard", start: [2, 0], end: [3, 0] }];
+  const result = leanMutations("def step (n : Nat) : Nat := n + 1\n", [], leanAnalysis([]),
+    "mutation insert guard\n- n + 1\n+ n\n+ #guard step 0 == 1\n",
+    [{ text: "#guard", analysis: leanAnalysis([], [leanError(2)], commands) }]);
+  assert.equal(result.status, 0, result.stdout);
+  includes(result.stdout, `#guard at ${result.modelPath}:1 (mutation replacement)\n`);
 });
 
 test("a Lean mutation with no error remains missed and its theorem remains uncovered", () => {

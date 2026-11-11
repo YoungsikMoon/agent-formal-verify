@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Lean mutation coverage now reads declaration identities and source ranges from the pinned Lean frontend. Indented public theorems remain covered, and equal short names in different namespaces remain separate targets. Guard and example failures cannot cover named theorems; errors outside recognized properties are rejected. The runner checks that the original module elaborates before testing mutations.
+Lean mutation coverage now reads declaration identities and source ranges from the pinned Lean frontend. Indented public theorems remain covered, and equal short names in different namespaces remain separate targets. Structure and class projections and instance declarations are not property targets, including local and scoped instances. Wrapped guards and examples remain detectable, and their reported locations refer to the original model. Guard and example failures cannot cover named theorems; errors outside recognized properties are rejected. The runner checks that the original module elaborates before testing mutations.
 
 Lean mutation results explicitly measure whether existing proofs break; they do not establish that a statement is false or its hypotheses can hold. The skill reports those evidence gaps separately. Existing properties may be corrected and re-frozen when the main thread accepts source-backed specification evidence, even when production code is unchanged; unsupported weakening remains prohibited.
 

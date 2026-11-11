@@ -156,7 +156,10 @@ grep -q '^FROZEN Frozen.step: statement changed' "$work/frozen.out"
 
 sed 's|fun _ => rfl|sorry|' "$work/frozen/proved" > "$work/frozen/Model/Frozen.lean"
 bash "$scripts/lean-check.sh" "$work/frozen" --freeze Model/Frozen.lean | tee "$work/frozen.out"
-! grep -q '^PASS ' "$work/frozen.out"
+if grep -q '^PASS ' "$work/frozen.out"; then
+  echo 'FAIL freezing an unfinished proof reported PASS'
+  exit 1
+fi
 rejected bash "$scripts/lean-check.sh" "$work/frozen" Model/Frozen.lean | tee "$work/frozen.out"
 grep -q 'sorryAx' "$work/frozen.out"
 cp "$work/frozen/proved" "$work/frozen/Model/Frozen.lean"
