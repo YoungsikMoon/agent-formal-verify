@@ -153,7 +153,6 @@ class Result:
     label: str = ""
     operator: str = ""
     detail: str = ""
-    states: int = 0
     lines: tuple = ()
 
 
@@ -215,7 +214,7 @@ class Runner:
                 self.check_run(run, reach.operator)
 
     def report(self, result):
-        self.failed |= result.outcome in (Outcome.FAIL, Outcome.MISSING, Outcome.UNREACHED, Outcome.INCOMPLETE, Outcome.NO_RUN, Outcome.MALFORMED)
+        self.failed |= result.outcome not in (Outcome.PASS, Outcome.WITNESS)
         self.emit(result)
 
     def check_run(self, run, operator=""):
@@ -232,8 +231,7 @@ class Runner:
         directory = Path(tempfile.mkdtemp(prefix="run.", dir=self.work))
         for module in (self.matrix_dir / self.spec).parent.glob("*.tla"):
             (directory / module.name).write_bytes(module.read_bytes())
-        constants = "".join(f"  {pair.partition('=')[0]} = {pair.partition('=')[2] if '=' in pair else pair}\n"
-                            for pair in run.constants.split())
+        constants = "".join(f"  {pair.split('=')[0]} = {pair.split('=', 1)[-1]}\n" for pair in run.constants.split())
         config = f"CONSTANTS\n{constants}SPECIFICATION Spec\n"
         if not operator:
             status, log = self.tlc.run(directory, name, config + "\n".join(self.checks) + "\n", reach=False)
@@ -287,9 +285,8 @@ def main():
         return 3
     with tempfile.TemporaryDirectory() as work:
         runner = Runner(tlc, Path(matrix).resolve().parent, only, lambda result: print("\n".join(render(result)), flush=True), Path(work))
-        with open(matrix, encoding="utf-8") as stream:
-            for directive in directives(stream.read().splitlines()):
-                runner.feed(directive)
+        for directive in directives(Path(matrix).read_text(encoding="utf-8").splitlines()):
+            runner.feed(directive)
         runner.finish_spec()
     if runner.runs_total == 0:
         matching = f"matching '{only}' " if only else ""

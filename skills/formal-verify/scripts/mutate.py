@@ -169,9 +169,10 @@ def check_tla(spec, checker, kinds, section, mutation, work):
             if result.outcome is tlc.Outcome.FAIL and any(sign in result.detail for sign in signs):
                 error = result.detail.removeprefix("Error: ").rstrip(".")
                 return Result(Verdict.DETECTED, f"{mutation.detects} fails in run '{result.label}' ({error})", covers)
-    for result in results:
-        if not kind and result.outcome is tlc.Outcome.UNREACHED:
-            return Result(Verdict.DETECTED, f"{mutation.detects} fails in run '{result.label}' (the model never reaches this state)", covers)
+    else:
+        for result in results:
+            if result.outcome is tlc.Outcome.UNREACHED:
+                return Result(Verdict.DETECTED, f"{mutation.detects} fails in run '{result.label}' (the model never reaches this state)", covers)
     return Result(Verdict.ERROR, "\n".join(line for result in results for line in tlc.render(result)))
 
 
