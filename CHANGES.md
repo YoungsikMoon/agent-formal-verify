@@ -12,6 +12,8 @@ The mutation runner checks that a Lean project's pinned toolchain is ready once 
 
 The Lean checker derives each source's module name once and passes it to the frozen-statement step, which derived it a second time from the same path. When Lake reports a build file outside `.lake/build/lib/lean`, the checker now names it and stops instead of auditing a wrong import.
 
+The Lean and Kani templates now ask the adapter to record the source files, line ranges, covered functions and `Source read at <commit>` line in the model's header, as the TLA+ template and all three briefs already did.
+
 ## 0.4.8 - pin Lean 4.35.0
 
 The Lean template pins Lean 4.35.0 in place of 4.34.1. The template records the same 34 declarations with the same statement types under both versions. Lean 4.35.0 builds the bodies of three generated `match_1` matchers differently, so their value fingerprints changed, and the template's statements are re-frozen. A project copied from the template keeps its own pin. After its `lean-toolchain` changes, the checker asks for a review and a fresh `--freeze`, as before. The checker still supports pins from Lean 4.20.0.

@@ -5,11 +5,14 @@ This model checks the counters of a bounded queue with ordered output.
 `next` counts claimed items, `consumed` counts consumed items, and at most
 `w` items may be in flight. To adapt it:
 
-1. Transcribe the state and steps from the code with the same arithmetic.
-2. State the invariant as a `Prop` with a `Decidable` instance.
-3. Run `#eval badPairs` to find states where a step violates the invariant
+1. Replace this description with the source files and line ranges the model
+   follows, the functions it covers, the commit they were read at as
+   `Source read at <commit>`, and each assumption it makes.
+2. Transcribe the state and steps from the code with the same arithmetic.
+3. State the invariant as a `Prop` with a `Decidable` instance.
+4. Run `#eval badPairs` to find states where a step violates the invariant
    within the chosen bound, and keep the `#guard` that fails the build on one.
-4. Prove the invariant for every size by cases on the step.
+5. Prove the invariant for every size by cases on the step.
 
 Name any unfinished proof that uses `sorry`. `lean-check.sh` fails on it, on
 any declaration that rests on a declared axiom, and on a `.lean` file that no
