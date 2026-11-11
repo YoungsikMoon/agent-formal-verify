@@ -1,5 +1,9 @@
 # Changes
 
+## 0.4.8 - pin Lean 4.35.0
+
+The Lean template pins Lean 4.35.0 in place of 4.34.1. The template records the same 34 declarations with the same statement types under both versions. Lean 4.35.0 builds the bodies of three generated `match_1` matchers differently, so their value fingerprints changed, and the template's statements are re-frozen. A project copied from the template keeps its own pin. After its `lean-toolchain` changes, the checker asks for a review and a fresh `--freeze`, as before. The checker still supports pins from Lean 4.20.0.
+
 ## 0.4.7 - an optional review of each model's properties
 
 A property can pass every check and still promise less than the code's callers rely on, and until now only the agent that wrote it read it. After writing the target table, the skill asks whether to add an independent review, one agent per target, and skips the question when the request already answers it. A headless run cannot answer, so it gets no review, and its reply says so. A reviewer follows the new review brief. It reads the source and the model's properties, assumptions and fix commits, without the modelling agent's report, and writes the bugs it expects to pass as mutations. The skill appends them to the model's mutations file and runs the mutation runner. It keeps the detected ones and gives a missed one to a new modelling agent. A finding that no mutation can express is reported as an open question. For each model, the reply says whether its properties were reviewed and how the reviewer's mutations fared.

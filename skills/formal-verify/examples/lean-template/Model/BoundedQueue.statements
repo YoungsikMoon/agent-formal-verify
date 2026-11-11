@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "toolchain": "leanprover/lean4:v4.34.1",
+  "toolchain": "leanprover/lean4:v4.35.0",
   "module": "Model.BoundedQueue",
   "declarations": [
     {
@@ -127,7 +127,7 @@
       "kind": "definition",
       "type": "(motive : Option BoundedQueue.State → Sort u_1) → (t : Option BoundedQueue.State) → ((t' : BoundedQueue.State) → motive (some t')) → (Unit → motive none) → motive t",
       "typeHash": "af98a4e3bf5e18322b9281d582642a70793e0eb5ce6780696c448cbf28256cce",
-      "valueHash": "5a81df6301de8bfb10f9c6d532962b792c2bf02848535c54a352efb8d7c52960"
+      "valueHash": "462c1132951924916484f4295f1aff8678fe9d71fa0a89a181829589f7f76d53"
     },
     {
       "name": "BoundedQueue.claim",
@@ -190,7 +190,7 @@
       "kind": "definition",
       "type": "(motive : BoundedQueue.State → BoundedQueue.State → Sort u_1) → (x x_1 : BoundedQueue.State) → ((a a_1 b b_1 : Nat) → motive { next := a, consumed := a_1 } { next := b, consumed := b_1 }) → motive x x_1",
       "typeHash": "a3593a5bf4fe863d9a64998e6820f9d4d108b25b8a7dbadc85895186e774b0bd",
-      "valueHash": "9938283ca2f3a004ce3d845ec5013b7a5b671dac2e76a444a175a76b5e28796a"
+      "valueHash": "8c1885bcd3420a131168e49097f6dbcc0424182d1b3c14d0cba7e31775881e9b"
     },
     {
       "name": "BoundedQueue.instDecidableInvariant",
@@ -232,7 +232,7 @@
       "kind": "definition",
       "type": "(motive : Nat → Sort u_1) → (x : Nat) → (Unit → motive 0) → ((steps : Nat) → motive steps.succ) → motive x",
       "typeHash": "762abfa7addd0bd8d4a548d7221baf925cf09a9c172d54d9d49a913a6c7908c2",
-      "valueHash": "4640df5f66530d2a7fca0c556fe4417fcd02d02d38f00ed860f5a87be762295d"
+      "valueHash": "d3ec4495c6184aacdc386c9a5da8fa7e98fa053decdc0d4ab66dcccd8ec23846"
     },
     {
       "name": "BoundedQueue.vectors",
