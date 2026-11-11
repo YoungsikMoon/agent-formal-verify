@@ -8,6 +8,13 @@ open Lean Elab Command
 
 private def point (p : Position) : Json := toJson (p.line, p.column)
 
+-- Older Lean numbers anonymous binders by a file-wide hygiene counter, so an
+-- edit to an earlier command renames them without changing the statement.
+private partial def unnamed (e : Expr) : Expr := e.replace fun
+  | .forallE _ t b bi => some (.forallE .anonymous (unnamed t) (unnamed b) bi)
+  | .lam _ t b bi => some (.lam .anonymous (unnamed t) (unnamed b) bi)
+  | _ => none
+
 private def declarations (instances : Array (Nat × Nat)) : CommandElabM (Array Json) := do
   let env ← getEnv
   let fileMap ← getFileMap
@@ -20,11 +27,12 @@ private def declarations (instances : Array (Nat × Nat)) : CommandElabM (Array 
     -- Local and scoped instances may no longer be registered in the final environment.
     let instanceDecl := Meta.isInstanceCore env name || instances.any fun (start, tail) =>
       start ≤ pos && pos < tail
+    let info := (env.find? name).get!
     result := result.push <| Json.mkObj [
       ("name", toJson ((privateToUserName? name).getD name).toString),
       ("private", toJson (privateToUserName? name).isSome),
-      ("theorem", toJson ((env.find? name).get!.isTheorem &&
-        !env.isProjectionFn name && !instanceDecl)),
+      ("theorem", toJson (info.isTheorem && !env.isProjectionFn name && !instanceDecl)),
+      ("type", toJson (reprStr (info.levelParams, unnamed info.type))),
       ("start", point ranges.range.pos), ("end", point ranges.range.endPos)]
   return result
 

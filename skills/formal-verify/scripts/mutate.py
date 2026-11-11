@@ -18,12 +18,15 @@ using the matrix runs. A Lean mutation is elaborated in the project, the mutated
 module alone, and reported with the theorems, lemmas, examples and #guard
 lines that fail. Every public theorem recorded in the model's .statements file
 must have its proof fail on some mutation; a failing #guard does not cover it.
+A theorem's errors count only when the mutation leaves its statement as Lean
+elaborates it unchanged; renaming a definition that a statement names, for
+example, changes that statement and gives the mutation no verdict.
 Lean reports fully qualified theorem names from elaborated declarations.
 This measures proof sensitivity, not whether a mutated statement is false or
 its hypotheses can hold. Private theorems are proof helpers and need no mutation. Exits 1 on a MISSED or
 UNCOVERED line, when a Lean model has no .statements file, or when a mutated
-model fails for another reason, such as a syntax error or a definition that
-no longer compiles.
+model fails for another reason, such as a syntax error, a definition that
+no longer compiles or a Lean theorem whose statement the mutation changes.
 
 Mutations file (a line starting with # is a comment):
   mutation <label>          starts a mutation
@@ -223,8 +226,8 @@ def original_location(model, mutation, position):
     return f"{model}:{line}{suffix}"
 
 
-def check_lean(model, project, toolchain, mutation, work):
-    """Attribute every error to an elaborated theorem or a parsed guard/example command; the mutation covers those."""
+def check_lean(model, project, toolchain, unmutated_types, mutation, work):
+    """Attribute every error to an elaborated theorem with its unmutated statement or a parsed guard/example command; the mutation covers those."""
     copy = work / model.name
     copy.write_text(mutation.source, encoding="utf-8")
     analysis = lean_analysis(copy, project, toolchain)
@@ -233,14 +236,19 @@ def check_lean(model, project, toolchain, mutation, work):
     failed = []
     for error in analysis["errors"]:
         position = [error["pos"]["line"], error["pos"]["column"]]
-        names = ["theorem " + decl["name"] for decl in analysis["declarations"]
-                 if decl["theorem"] and contains(decl, position)]
+        where = f"{error['fileName']}:{position[0]}:{position[1]}: {error['data']}"
+        theorems = [decl for decl in analysis["declarations"] if decl["theorem"] and contains(decl, position)]
+        for decl in theorems:
+            if unmutated_types.get(decl["name"]) != decl["type"]:
+                return Result(Verdict.ERROR, f"theorem {decl['name']}: the mutation changes its statement, "
+                                             f"so this error does not show its proof failing\n{where}")
+        names = ["theorem " + decl["name"] for decl in theorems]
         if not names:
             names = [f"{cmd['property']} at {original_location(model, mutation, cmd['start'])}"
                      for cmd in analysis["commands"]
                      if cmd["property"] and contains(cmd, position)]
         if error["fileName"] != str(copy) or not names:
-            return Result(Verdict.ERROR, f"{error['fileName']}:{position[0]}:{position[1]}: {error['data']}")
+            return Result(Verdict.ERROR, where)
         failed.extend(name for name in names if name not in failed)
     return Result(Verdict.DETECTED, "proof/check fails: " + "; ".join(failed), frozenset(failed))
 
@@ -312,7 +320,8 @@ def lean_runner(model, mutations):
         stop(f"unmutated Lean model does not elaborate: {analysis['errors'][0]['data']}")
     targets = {"theorem " + decl["name"] for decl in analysis["declarations"]
                if decl["theorem"] and not decl["private"] and decl["name"] in frozen}
-    return targets, partial(check_lean, model, project, toolchain)
+    unmutated_types = {decl["name"]: decl["type"] for decl in analysis["declarations"] if decl["theorem"]}
+    return targets, partial(check_lean, model, project, toolchain, unmutated_types)
 
 
 def rust_runner(model, mutations):

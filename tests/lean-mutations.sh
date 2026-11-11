@@ -42,6 +42,8 @@ if grep -q '^UNCOVERED theorem Step.helper$' "$work/result"; then
 fi
 
 # Proposition-valued projections and instances are not property declarations.
+# A theorem with an anonymous instance binder keeps its statement when the
+# mutation shifts the hygiene numbers that Lean 4.20 gives such binders.
 cat > "$work/Model/Step.lean" <<'EOF'
 namespace Step
 def step (n : Nat) : Nat := n + 1
@@ -53,6 +55,7 @@ structure Pos where
   pos : 0 < n
 class Good (n : Nat) : Prop where
   ok : 0 < n
+theorem good (n : Nat) [Good n] : n < step n := by simp [step]
 instance globalGood : Good 1 := ⟨by decide⟩
 section
 local instance localGood : Good 2 := ⟨by decide⟩
@@ -65,7 +68,7 @@ EOF
 bash "$scripts/lean-check.sh" "$work" --freeze Model/Step.lean
 python3 "$scripts/mutate.py" "$work/Model/Step.mutations" > "$work/result"
 cat "$work/result"
-grep -q '^DETECTED no increment: proof/check fails: theorem Step.property$' "$work/result"
+grep -q '^DETECTED no increment: proof/check fails: theorem Step.property; theorem Step.good$' "$work/result"
 if grep -q '^UNCOVERED' "$work/result"; then
   echo 'FAIL projection or instance counted as a coverage target'
   exit 1
