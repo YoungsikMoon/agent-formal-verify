@@ -37,6 +37,12 @@ CHECK_KINDS = ("INVARIANT", "INVARIANTS", "PROPERTY", "PROPERTIES")
 REACH = re.compile(r"([a-zA-Z_][a-zA-Z_0-9]*)\s*\|\s*(.*\S)\s*")
 
 
+def read_raw(path):
+    """Return a file's text as bash reads it: line ends untouched, a byte that is not UTF-8 replaced."""
+    with open(path, encoding="utf-8", errors="replace", newline="") as stream:
+        return stream.read()
+
+
 @dataclass(frozen=True)
 class Spec:
     path: str
@@ -131,7 +137,7 @@ class Tlc:
                    "-config", str(directory / "MC.cfg"), str(directory / f"{module}.tla")]
         with log.open("w", encoding="utf-8") as stream:
             status = subprocess.run(command, stdout=stream, stderr=subprocess.STDOUT, check=False).returncode
-        return status, log.read_text(encoding="utf-8", errors="replace")
+        return status, read_raw(log)
 
 
 class Outcome(Enum):
@@ -174,9 +180,10 @@ def render(result):
 
 def reduced_trace(log_path, log):
     done = subprocess.run([sys.executable, str(HERE / "tlc-trace.py"), str(log_path)], capture_output=True, text=True, check=False)
-    lines = done.stdout.splitlines()
+    sys.stderr.write(done.stderr)
+    lines = done.stdout.removesuffix("\n").split("\n") if done.stdout else []
     if done.returncode:
-        lines += [line for line in log.splitlines() if line.strip()][-40:]
+        lines += [line for line in log.split("\n") if line.strip()][-40:]
     return lines
 
 
@@ -251,12 +258,12 @@ class Runner:
             count = states.partition(" ")[0].replace(",", "")
             self.states += int(count or 0)
             return Result(Outcome.PASS, name, run.label, detail=states)
-        errors = [line for line in log.splitlines() if line.startswith("Error:")]
+        errors = [line for line in log.split("\n") if line.startswith("Error:")]
         return Result(Outcome.FAIL, name, run.label, detail=errors[0] if errors else "",
                       lines=(*errors[1:5], *reduced_trace(log_path, log)))
 
     def witness(self, name, run, operator, invariant, status, log):
-        lines = log.splitlines()
+        lines = log.split("\n")
         length = 0
         if status == 12 and f"Error: Invariant {invariant} is violated by the initial state:" in lines:
             length = 1
@@ -285,7 +292,7 @@ def main():
         return 3
     with tempfile.TemporaryDirectory() as work:
         runner = Runner(tlc, Path(matrix).resolve().parent, only, lambda result: print("\n".join(render(result)), flush=True), Path(work))
-        for directive in directives(Path(matrix).read_text(encoding="utf-8").splitlines()):
+        for directive in directives(read_raw(matrix).split("\n")):
             runner.feed(directive)
         runner.finish_spec()
     if runner.runs_total == 0:

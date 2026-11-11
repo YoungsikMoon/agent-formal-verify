@@ -268,7 +268,7 @@ def tla_runner(spec, mutations):
     if not matrix.is_file():
         stop(f"{matrix} is missing; mutations use its checks and runs")
     section, ours = [], False
-    for directive in tlc.directives(matrix.read_text(encoding="utf-8").splitlines()):
+    for directive in tlc.directives(tlc.read_raw(matrix).split("\n")):
         if isinstance(directive, tlc.Malformed):
             stop(f"{matrix}: {directive.message}")
         if isinstance(directive, tlc.Spec):
