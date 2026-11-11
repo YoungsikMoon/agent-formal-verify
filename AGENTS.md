@@ -5,7 +5,7 @@ Instructions for coding agents working in this repository. [CONTRIBUTING.md](CON
 ## Commands
 
 - `prek run --all-files` runs every lint and the metadata tests. CI runs the same checks.
-- `node --test tests/kani.test.mjs tests/tools.test.mjs tests/plugin.test.mjs` runs the helper and metadata tests alone.
+- `node --test 'tests/*.test.mjs'` runs the helper and metadata tests alone.
 - `bash tests/models.sh` runs the bundled examples and their mutations through TLC, Lean and Kani. CI runs it as the `models` job.
 
 ## Release
