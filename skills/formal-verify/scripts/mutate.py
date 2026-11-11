@@ -10,12 +10,16 @@ per mutation:
 
   DETECTED <label>: <what failed>   the mutated model fails as it should
   MISSED <label>                    the mutated model still passes
-  UNCOVERED <Property>              a TLA+ property or Rust harness no mutation targets
+  UNCOVERED <Property>              a TLA+ property or Rust harness no mutation
+                                    targets, or a Lean theorem no mutation breaks
 
 A TLA+ mutation is checked against the property or reach operator it names,
 using the matrix runs. A Lean mutation is elaborated in the project, the mutated
 module alone, and reported with the theorems, lemmas, examples and #guard
-lines that fail. Exits 1 on a MISSED or UNCOVERED line, or when a mutated
+lines that fail. Every public theorem recorded in the model's .statements file
+must fail on some mutation itself; a failing #guard does not cover it. Private
+theorems are proof helpers and need no mutation. Exits 1 on a MISSED or
+UNCOVERED line, when a Lean model has no .statements file, or when a mutated
 model fails for another reason, such as a syntax error or a definition that
 no longer compiles.
 
@@ -31,6 +35,7 @@ Mutations file (a line starting with # is a comment):
 Usage: mutate.py <Name.mutations>
   The environment settings of tlc-matrix.sh apply to TLA+ mutations.
 """
+import json
 import re
 import shutil
 import subprocess
@@ -63,6 +68,7 @@ class Mutation:
     only: str = ""
     old: list = field(default_factory=list)
     new: list = field(default_factory=list)
+    failed: list = field(default_factory=list)
 
 
 def stop(message, status=1):
@@ -179,6 +185,7 @@ def check_lean(model, project, mutation, work):
                 break
     if not failed or not all(name.startswith(LEAN_PROPERTY) for name in failed):
         return "ERROR", output
+    mutation.failed = failed
     return "DETECTED", "fails " + "; ".join(failed)
 
 
@@ -207,11 +214,33 @@ def tla_runner(spec, mutations):
     return set(kinds), partial(check_tla, spec, kinds, reaches, runs)
 
 
+def lean_theorems(model):
+    """Return the public theorems of model that its .statements file records, as check_lean names them."""
+    record = model.with_suffix(".statements")
+    if not record.is_file():
+        stop(f"{record} is missing; freeze the model with lean-check.sh --freeze before checking its mutations")
+    frozen = [entry["name"] for entry in json.loads(record.read_text(encoding="utf-8"))["declarations"]
+              if entry["kind"] == "theorem"]
+    theorems = set()
+    for line in model.read_text(encoding="utf-8").splitlines():
+        declaration = LEAN_DECLARATION.match(line)
+        if not declaration or not declaration[1].startswith(("theorem ", "lemma ")) or "private " in line[:declaration.start(1)]:
+            continue
+        # The record holds full names and the source the name inside its namespace.
+        name = declaration[1].partition(" ")[2]
+        if any(full == name or full.endswith("." + name) for full in frozen):
+            theorems.add(declaration[1])
+    return theorems
+
+
 def lean_runner(model, mutations):
     project = project_root(model, "lakefile.toml", "lakefile.lean")
     if project is None:
         stop(f"{model} is in no Lake project")
-    return set(), partial(check_lean, model, project)
+    for mutation in mutations:
+        if mutation.detects:
+            stop(f"mutation '{mutation.label}': Lean mutations take no detects line; the runner names the theorems that fail")
+    return lean_theorems(model), partial(check_lean, model, project)
 
 
 def rust_runner(model, mutations):
@@ -237,6 +266,7 @@ def rust_runner(model, mutations):
 
 
 # Each runner validates the mutations, then returns the names they must cover and a check for one mutation.
+# A TLA+ or Rust mutation covers the name it detects; a Lean mutation covers the theorems that fail on it.
 RUNNERS = {".tla": tla_runner, ".lean": lean_runner, ".rs": rust_runner}
 
 
@@ -262,7 +292,8 @@ def main():
             stop(f"mutation '{mutation.label}' did not reach a verdict:\n{detail.strip()}")
         detected += verdict == "DETECTED"
         print(f"{verdict} {mutation.label}" + (f": {detail}" if detail else ""))
-    uncovered = sorted(targets - {mutation.detects for mutation in mutations})
+    covered = {mutation.detects for mutation in mutations}.union(*(mutation.failed for mutation in mutations))
+    uncovered = sorted(targets - covered)
     for name in uncovered:
         print(f"UNCOVERED {name}")
     print(f"SUMMARY {detected} of {len(mutations)} mutations detected"

@@ -69,6 +69,11 @@ Put `<Name>.mutations` beside the assigned `<Name>.rs`. Use
 the whole crate to temporary storage and checks the named harness. A compiler
 error never counts as detection. Every discovered harness needs a mutation.
 
+For each fix commit in your row whose fixed code is in the file beside the
+mutations file, add a mutation that restores the code before the fix, with the
+commit's short hash in its label. The runner edits only that file, so report a
+fix in any other file as not replayed.
+
 ## Counter-examples
 
 The helper prints failed checks with source locations and Kani's generated
@@ -87,8 +92,9 @@ Never disable unwinding checks to obtain a pass.
 ## Report
 
 Report each property, input bounds, integer widths, unwind bound, assumptions,
-cover witnesses, mutation results and source location. For each counter-example,
-include its inputs and reproducing test and say whether shipped callers can pass
-those inputs. Use `reproduced`, `reachable at shipped settings` or `model-only`
+cover witnesses, mutation results and source location. Give each fix commit from
+the row with the verdict of its mutation, or say it was not replayed. For each
+counter-example, include its inputs and reproducing test and say whether shipped
+callers can pass those inputs. Use `reproduced`, `reachable at shipped settings` or `model-only`
 as appropriate. A pass covers the stated bounded inputs only. Report unavailable
 tools as not checked with the remedy, never as a pass or a model failure.
