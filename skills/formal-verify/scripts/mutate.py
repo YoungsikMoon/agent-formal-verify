@@ -42,7 +42,6 @@ Usage: mutate.py <Name.mutations>
   The environment settings of tlc-matrix.sh apply to TLA+ mutations.
 """
 import json
-import re
 import shutil
 import subprocess
 import sys
@@ -53,10 +52,11 @@ from enum import Enum
 from functools import partial
 from pathlib import Path
 
-# Importing kani must not write __pycache__ into the skill directory.
+# Importing kani and tlc must not write __pycache__ into the skill directory.
 sys.dont_write_bytecode = True
 
 import kani
+import tlc
 
 HERE = Path(__file__).resolve().parent
 LEAN_NOTE = "NOTE Lean detections mean existing proofs fail, not that theorem statements are false or hypotheses satisfiable."
@@ -143,63 +143,37 @@ def make_mutation(label, directives, model, text, language):
     return Mutation(label, detects, only, old, new, text.replace(old, new))
 
 
-def matrix_of(spec):
-    """Return property kinds, reach directives by operator, and run lines for spec."""
-    matrix, kinds, reaches, runs, ours = spec.with_suffix(".matrix"), {}, {}, [], False
-    if not matrix.is_file():
-        stop(f"{matrix} is missing; mutations use its checks and runs")
-    for line in matrix.read_text(encoding="utf-8").splitlines():
-        keyword, _, rest = line.split("#")[0].strip().partition(" ")
-        if keyword == "spec":
-            ours = rest.strip() == spec.name
-        elif ours and keyword == "check":
-            parts = rest.split()
-            if len(parts) < 2 or parts[0] not in ("INVARIANT", "INVARIANTS", "PROPERTY", "PROPERTIES"):
-                stop(f"{matrix}: malformed check '{rest}'")
-            kind, *names = parts
-            kinds.update(dict.fromkeys(names, kind))
-        elif ours and keyword == "run":
-            runs.append(f"run {rest}")
-        elif ours and keyword == "reach":
-            operator, bar, label = rest.partition("|")
-            operator = operator.strip()
-            if not bar or not re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", operator) or not label.strip():
-                stop(f"{matrix}: malformed reach '{rest}'")
-            reaches.setdefault(f"reach:{operator}", []).append(f"reach {rest}")
-    return kinds, reaches, runs
-
-
-def check_tla(spec, kinds, reaches, runs, mutation, work):
-    """Check the mutation's property or reach operator; the mutation covers the name it detects."""
-    kind, covers = kinds.get(mutation.detects, ""), frozenset({mutation.detects})
+def check_tla(spec, checker, kinds, section, mutation, work):
+    """Run the mutated spec through tlc-matrix.sh's runner with only the mutation's check; it covers the name it detects."""
     for module in spec.parent.glob("*.tla"):
         (work / module.name).write_text(module.read_text(encoding="utf-8"), encoding="utf-8")
     (work / spec.name).write_text(mutation.source, encoding="utf-8")
-    matrix = work / spec.with_suffix(".matrix").name
-    checks = reaches.get(mutation.detects, [f"check {kind} {mutation.detects}"])
-    matrix.write_text("\n".join([f"spec {spec.name}", *checks, *runs]) + "\n", encoding="utf-8")
-    command = ["bash", str(HERE / "tlc-matrix.sh"), str(matrix), *([mutation.only] if mutation.only else [])]
-    done = subprocess.run(command, capture_output=True, text=True, check=False)
-    if done.returncode == 3:
-        print((done.stdout + done.stderr).strip())
-        sys.exit(3)
-    if done.returncode == 0:
+    kind, covers = kinds.get(mutation.detects, ""), frozenset({mutation.detects})
+    if kind:
+        checks = [tlc.Check(f"{kind} {mutation.detects}", kind, (mutation.detects,))]
+    else:
+        checks = [d for d in section if isinstance(d, tlc.Reach) and f"reach:{d.operator}" == mutation.detects]
+    results = []
+    runner = tlc.Runner(checker, work, mutation.only, results.append, work)
+    for directive in [tlc.Spec(spec.name), *checks, *(d for d in section if isinstance(d, tlc.Run))]:
+        runner.feed(directive)
+    runner.finish_spec()
+    if runner.runs_total == 0:
+        return Result(Verdict.ERROR, f"no run matches '{mutation.only}'")
+    if not runner.failed:
         return Result(Verdict.MISSED, covers=covers)
-    if mutation.detects in reaches:
-        prefix = f"FAIL {spec.stem} reach {mutation.detects.removeprefix('reach:')} "
-        suffix = ": the model never reaches this state"
-        for line in done.stdout.splitlines():
-            if line.startswith(prefix) and line.endswith(suffix):
-                label = line[len(prefix):-len(suffix)]
-                return Result(Verdict.DETECTED, f"{mutation.detects} fails in run '{label}' (the model never reaches this state)", covers)
-        return Result(Verdict.ERROR, done.stdout + done.stderr)
-    # A deadlock stops the system for good, so it breaks a temporal property but no invariant.
-    signs = ["violated"] + (["Deadlock reached"] if kind.startswith("PROPERT") else [])
-    for line in done.stdout.splitlines():
-        if line.startswith("FAIL ") and any(sign in line for sign in signs):
-            run, _, error = line.removeprefix(f"FAIL {spec.stem} ").partition(": Error: ")
-            return Result(Verdict.DETECTED, f"{mutation.detects} fails in run '{run}' ({error.rstrip('.')})", covers)
-    return Result(Verdict.ERROR, done.stdout + done.stderr)
+    if kind:
+        # A deadlock stops the system for good, so it breaks a temporal property but no invariant.
+        signs = ["violated"] + (["Deadlock reached"] if kind.startswith("PROPERT") else [])
+        for result in results:
+            if result.outcome is tlc.Outcome.FAIL and any(sign in result.detail for sign in signs):
+                error = result.detail.removeprefix("Error: ").rstrip(".")
+                return Result(Verdict.DETECTED, f"{mutation.detects} fails in run '{result.label}' ({error})", covers)
+    else:
+        for result in results:
+            if result.outcome is tlc.Outcome.UNREACHED:
+                return Result(Verdict.DETECTED, f"{mutation.detects} fails in run '{result.label}' (the model never reaches this state)", covers)
+    return Result(Verdict.ERROR, "\n".join(line for result in results for line in tlc.render(result)))
 
 
 def lean_toolchain(project):
@@ -289,11 +263,29 @@ def project_root(model, *markers):
 
 
 def tla_runner(spec, mutations):
-    kinds, reaches, runs = matrix_of(spec)
+    """Take the checks, reach operators and runs of spec's section of its matrix, and check TLC once."""
+    matrix = spec.with_suffix(".matrix")
+    if not matrix.is_file():
+        stop(f"{matrix} is missing; mutations use its checks and runs")
+    section, ours = [], False
+    for directive in tlc.directives(tlc.read_raw(matrix).split("\n")):
+        if isinstance(directive, tlc.Malformed):
+            stop(f"{matrix}: {directive.message}")
+        if isinstance(directive, tlc.Spec):
+            ours = (matrix.parent / directive.path).resolve() == spec
+        elif ours:
+            section.append(directive)
+    kinds = {name: d.kind for d in section if isinstance(d, tlc.Check) for name in d.names}
+    reaches = {f"reach:{d.operator}" for d in section if isinstance(d, tlc.Reach)}
     for mutation in mutations:
         if mutation.detects not in kinds and mutation.detects not in reaches:
-            stop(f"mutation '{mutation.label}': detects '{mutation.detects}', which {spec.with_suffix('.matrix')} does not check")
-    return set(kinds), partial(check_tla, spec, kinds, reaches, runs)
+            stop(f"mutation '{mutation.label}': detects '{mutation.detects}', which {matrix} does not check")
+    try:
+        checker = tlc.Tlc()
+    except tlc.Unavailable as error:
+        print(error)
+        sys.exit(3)
+    return set(kinds), partial(check_tla, spec, checker, kinds, section)
 
 
 def frozen_theorems(model):

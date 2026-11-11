@@ -171,6 +171,14 @@ test("the matrix runner fails a check line that no spec would keep", () => {
   includes(result.stdout, "FAIL check 'INVARIANTS Small' before any spec line");
 });
 
+test("the matrix runner reads a matrix that holds bytes that are not UTF-8", () => {
+  const { dir, matrix } = matrixFixture([]);
+  writeFileSync(join(dir, "checks.matrix"), Buffer.concat([Buffer.from("# caf"), Buffer.from([0xe9]), Buffer.from("\nspec a/One.tla\nrun n=1 | N=1\n")]));
+  const result = matrix();
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  includes(result.stdout, "PASS One n=1 4 distinct states found\n");
+});
+
 test("the matrix runner fails a run line without a bar instead of inventing a constant", () => {
   const { dir, matrix } = matrixFixture(["spec a/One.tla", "run n=4"], 'echo started >> "$TASK_TRACE"');
   const result = matrix();

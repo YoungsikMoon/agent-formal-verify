@@ -8,11 +8,11 @@ import { command, excludes, fakeTlc, fixture, includes, logs, removeFixtures, ru
 
 afterEach(removeFixtures);
 
-function tlaMutations(checks, mutations, log = "tlc-invariant.log") {
+function tlaMutations(checks, mutations, log = "tlc-invariant.log", specPath = "One.tla") {
   const dir = fixture();
   const spec = "---- MODULE One ----\nStep == x' = x + 1\n====\n";
   writeFileSync(join(dir, "One.tla"), spec);
-  writeFileSync(join(dir, "One.matrix"), ["spec One.tla", ...checks, "run n=4 | N=4", "run n=5 | N=5"].join("\n") + "\n");
+  writeFileSync(join(dir, "One.matrix"), [`spec ${specPath}`, ...checks, "run n=4 | N=4", "run n=5 | N=5"].join("\n") + "\n");
   writeFileSync(join(dir, "One.mutations"), mutations.join("\n") + "\n");
   writeFileSync(join(dir, "tools.jar"), "user supplied");
   // TLC fails on a spec that holds BUG, and records the checks it was given.
@@ -45,6 +45,12 @@ test("the mutation runner checks each TLA+ mutation against its one property and
   ].join("\n"));
   assert.equal(result.status, 1);
   assert.equal(readFileSync(join(dir, "calls"), "utf8"), "SPECIFICATION Spec\nINVARIANTS Small\n");
+});
+
+test("the mutation runner finds its spec's matrix section however the spec line writes the path", () => {
+  const { result } = tlaMutations(["check INVARIANTS Small"], ["mutation skip", "detects Small", "only n=4", "- x' = x + 1", "+ x' = x + 2 \\* BUG"], undefined, "./One.tla");
+  assert.equal(result.stdout, "DETECTED skip: Small fails in run 'n=4' (Invariant Small is violated)\nSUMMARY 1 of 1 mutations detected\n");
+  assert.equal(result.status, 0);
 });
 
 test("the mutation runner fails a mutation that every run still passes", () => {
