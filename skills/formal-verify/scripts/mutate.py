@@ -237,6 +237,9 @@ def lean_runner(model, mutations):
     project = project_root(model, "lakefile.toml", "lakefile.lean")
     if project is None:
         stop(f"{model} is in no Lake project")
+    for mutation in mutations:
+        if mutation.detects:
+            stop(f"mutation '{mutation.label}': Lean mutations take no detects line; the runner names the theorems that fail")
     return lean_theorems(model), partial(check_lean, model, project)
 
 
