@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
-import { command, excludes, fixture, includes, removeFixtures, run, scripts } from "./helpers.mjs";
+import { command, excludes, fixture, includes, leanPin, removeFixtures, run, scripts } from "./helpers.mjs";
 
 afterEach(removeFixtures);
 
@@ -13,7 +13,7 @@ test("missing runtimes and hash tools are unavailable with their remedies", () =
   const dir = fixture();
   const jar = join(dir, "tools.jar");
   writeFileSync(jar, "jar");
-  writeFileSync(join(dir, "lean-toolchain"), "leanprover/lean4:v4.34.1\n");
+  writeFileSync(join(dir, "lean-toolchain"), leanPin + "\n");
   const java = command(dir, "java", "exit 0");
   const cases = [
     ["tlc-tools.sh", "require_tlc_runtime", { JAVA: "/absent/java" }, "install a JDK"],

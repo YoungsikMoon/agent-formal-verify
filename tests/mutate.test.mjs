@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
-import { command, excludes, fixture, includes, logs, removeFixtures, run } from "./helpers.mjs";
+import { command, excludes, fakeTlc, fixture, includes, logs, removeFixtures, run, writeLeanProject } from "./helpers.mjs";
 
 afterEach(removeFixtures);
 
@@ -16,8 +16,7 @@ function tlaMutations(checks, mutations, log = "tlc-invariant.log") {
   writeFileSync(join(dir, "One.mutations"), mutations.join("\n") + "\n");
   writeFileSync(join(dir, "tools.jar"), "user supplied");
   // TLC fails on a spec that holds BUG, and records the checks it was given.
-  const java = command(dir, "tlc-java", [
-    '[[ "$*" == *"-help"* ]] && exit 0\n[ "$1" = "-version" ] && exit 0',
+  const java = fakeTlc(dir, [
     'for last; do :; done',
     'grep -v CONSTANTS "$(dirname "$last")/MC.cfg" | grep "^[A-Z]" >> "$TASK_TRACE"',
     'if grep -q BUG "$last"; then cat "$TLC_LOG"; exit 12; fi',
@@ -88,9 +87,8 @@ function freezeRecord(path, theorems) {
 function leanProject() {
   const dir = fixture();
   const project = join(dir, "lean");
-  mkdirSync(join(project, "Model"), { recursive: true });
-  writeFileSync(join(project, "lakefile.toml"), 'name = "model"\n');
-  writeFileSync(join(project, "lean-toolchain"), "leanprover/lean4:v4.34.1\n");
+  writeLeanProject(project);
+  mkdirSync(join(project, "Model"));
   return { dir, project };
 }
 
@@ -268,8 +266,7 @@ test("mutation runners preserve unavailable status and never report a missed mut
     if (language === "tla") {
       writeFileSync(join(dir, "One.matrix"), "spec One.tla\ncheck INVARIANTS Small\nrun n=1 | N=1\n");
     } else {
-      writeFileSync(join(dir, "lakefile.toml"), 'name = "model"\n');
-      writeFileSync(join(dir, "lean-toolchain"), "leanprover/lean4:v4.34.1\n");
+      writeLeanProject(dir);
       freezeRecord(join(dir, "One.statements"), []);
       command(dir, "elan", "exit 1");
     }
@@ -301,7 +298,7 @@ function reachMutation(java) {
   writeFileSync(join(dir, "One.mutations"), "mutation never full\ndetects reach:Full\n- x + 1\n+ x \\* BUG\n");
   writeFileSync(join(dir, "tools.jar"), "user supplied");
   return run(dir, "mutate.py", [join(dir, "One.mutations")], {
-    JAVA: command(dir, "tlc-java", '[[ "$*" == *"-help"* ]] && exit 0\n[ "$1" = "-version" ] && exit 0\n' + java),
+    JAVA: fakeTlc(dir, java),
     TLC_JAR: join(dir, "tools.jar"),
   });
 }

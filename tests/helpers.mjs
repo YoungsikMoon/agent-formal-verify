@@ -29,6 +29,15 @@ export function command(dir, name, body) {
   chmodSync(path, 0o755);
   return path;
 }
+export function fakeTlc(dir, body) {
+  return command(dir, "tlc-java", '[[ "$*" == *"-help"* ]] && exit 0\n[ "$1" = "-version" ] && exit 0\n' + body);
+}
+export const leanPin = "leanprover/lean4:v4.34.1";
+export function writeLeanProject(project) {
+  mkdirSync(project, { recursive: true });
+  writeFileSync(join(project, "lakefile.toml"), 'name = "model"\n');
+  writeFileSync(join(project, "lean-toolchain"), leanPin + "\n");
+}
 export function run(dir, script, args = [], extra = {}) {
   return spawnSync(script.endsWith(".py") ? "python3" : "bash", [join(scripts, script), ...args], {
     encoding: "utf8",

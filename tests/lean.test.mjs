@@ -4,23 +4,21 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
-import { command, excludes, fixture, includes, logs, removeFixtures, run } from "./helpers.mjs";
+import { command, excludes, fixture, includes, leanPin, logs, removeFixtures, run, writeLeanProject } from "./helpers.mjs";
 
 afterEach(removeFixtures);
 
 test("Lean verification refuses an unprepared toolchain without requesting installation", () => {
   const dir = fixture();
   const project = join(dir, "model");
-  mkdirSync(project);
-  writeFileSync(join(project, "lakefile.toml"), 'name = "model"\n');
-  writeFileSync(join(project, "lean-toolchain"), "leanprover/lean4:v4.34.1\n");
+  writeLeanProject(project);
   command(dir, "elan", 'printf "%s\\n" "$@" >> "$TASK_TRACE"; exit 1');
   const result = run(dir, "lean-check.sh", [project]);
   assert.equal(result.status, 3);
   includes(result.stdout, "UNAVAILABLE ");
   includes(result.stdout, "setup.sh lean");
   const args = readFileSync(join(dir, "calls"), "utf8").trim().split("\n");
-  assert.deepEqual(args, ["run", "leanprover/lean4:v4.34.1", "lake", "--version"]);
+  assert.deepEqual(args, ["run", leanPin, "lake", "--version"]);
 });
 
 test("Lean preparation reuses ready pins and installs a changed repository pin once", () => {
@@ -28,7 +26,7 @@ test("Lean preparation reuses ready pins and installs a changed repository pin o
   const project = join(dir, "model with spaces");
   const installed = join(dir, "installed");
   const oldPin = "leanprover/lean4:v4.34.0";
-  const newPin = "leanprover/lean4:v4.34.1";
+  const newPin = leanPin;
   mkdirSync(project);
   writeFileSync(join(project, "lean-toolchain"), oldPin + "\n");
   writeFileSync(installed, oldPin + "\n");
@@ -56,12 +54,12 @@ test("Lean preparation reports failure when installation does not produce a work
   const dir = fixture();
   const project = join(dir, "model");
   mkdirSync(project);
-  writeFileSync(join(project, "lean-toolchain"), "leanprover/lean4:v4.34.1\n");
+  writeFileSync(join(project, "lean-toolchain"), leanPin + "\n");
   command(dir, "elan", 'if [ "$1" = "toolchain" ]; then exit 0; fi; exit 1');
   const result = run(dir, "setup.sh", ["lean", project]);
   assert.equal(result.status, 3);
   excludes(result.stdout, "READY");
-  includes(result.stdout, "UNAVAILABLE leanprover/lean4:v4.34.1 does not run after installation");
+  includes(result.stdout, `UNAVAILABLE ${leanPin} does not run after installation`);
 });
 
 const audited = "AUDITED 37 declarations";
@@ -69,9 +67,7 @@ const audited = "AUDITED 37 declarations";
 function leanFixture(log, { status = 0, audit = audited, files = [] } = {}) {
   const dir = fixture();
   const project = join(realpathSync(dir), "model");
-  mkdirSync(project);
-  writeFileSync(join(project, "lakefile.toml"), 'name = "model"\n');
-  writeFileSync(join(project, "lean-toolchain"), "leanprover/lean4:v4.34.1\n");
+  writeLeanProject(project);
   const lib = ".lake/build/lib/lean";
   for (const file of ["Model.lean", "Model/Sub.lean", `${lib}/Model.olean`, `${lib}/Model/Sub.olean`, `${lib}/Ghost.olean`, ".lake/packages/dep/Dep.lean"]) {
     mkdirSync(join(project, file, ".."), { recursive: true });
@@ -134,7 +130,7 @@ test("the Lean checker names the minimum Lean version when the pin's Lake has no
   for (const log of ["lake-no-query.log", "lake-no-path-target.log"]) {
     const { result } = leanFixture(log, { status: 1 });
     assert.equal(result.status, 1);
-    includes(result.stdout, "leanprover/lean4:v4.34.1 cannot build a module by its source path; pin Lean 4.20.0 or later\n");
+    includes(result.stdout, `${leanPin} cannot build a module by its source path; pin Lean 4.20.0 or later\n`);
   }
 });
 
@@ -168,7 +164,7 @@ test("the Lean checker freezes unfinished statements deterministically without c
   excludes(first.stdout, "PASS ");
   const path = join(project, "Model.statements");
   const frozen = readFileSync(path, "utf8");
-  assert.equal(JSON.parse(frozen).toolchain, "leanprover/lean4:v4.34.1");
+  assert.equal(JSON.parse(frozen).toolchain, leanPin);
   assert.deepEqual(JSON.parse(frozen).declarations.map((d) => d.name), ["earlier", "later"]);
   assert.equal(check(["--freeze", "Model.lean"]).status, 0);
   assert.equal(readFileSync(path, "utf8"), frozen);
@@ -271,7 +267,7 @@ test("missing Lean project files stay model failures", () => {
 
 test("Lean installation output follows an unavailable result when installation fails", () => {
   const dir = fixture();
-  writeFileSync(join(dir, "lean-toolchain"), "leanprover/lean4:v4.34.1\n");
+  writeFileSync(join(dir, "lean-toolchain"), leanPin + "\n");
   command(dir, "elan", 'if [ "$1" = "toolchain" ]; then echo "install log"; fi; exit 1');
   const result = run(dir, "setup.sh", ["lean", dir]);
   assert.equal(result.status, 3);

@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
-import { command, excludes, fixture, includes, logs, removeFixtures, run, scripts } from "./helpers.mjs";
+import { command, excludes, fakeTlc, fixture, includes, logs, removeFixtures, run, scripts } from "./helpers.mjs";
 
 afterEach(removeFixtures);
 
@@ -90,7 +90,7 @@ test("the trace reducer fails on a log without an error trace", () => {
   assert.equal(result.stdout, "");
 });
 
-function matrixFixture(lines, java) {
+function matrixFixture(lines, java, log = "tlc-invariant.log") {
   const dir = fixture();
   for (const sub of ["a", "b"]) mkdirSync(join(dir, sub));
   writeFileSync(join(dir, "a/One.tla"), "---- MODULE One ----\n====\n");
@@ -102,9 +102,9 @@ function matrixFixture(lines, java) {
   return {
     dir,
     matrix: (args = []) => run(dir, "tlc-matrix.sh", [join(dir, "checks.matrix"), ...args], {
-      JAVA: command(dir, "tlc-java", '[[ "$*" == *"-help"* ]] && exit 0\n[ "$1" = "-version" ] && exit 0\n' + (java ?? passing)),
+      JAVA: fakeTlc(dir, java ?? passing),
       TLC_JAR: join(dir, "tools.jar"),
-      TLC_LOG: join(logs, "tlc-invariant.log"),
+      TLC_LOG: join(logs, log),
     }),
   };
 }
@@ -211,17 +211,14 @@ const reachJava = [
   'dir=$(dirname "$last")',
   'if grep -q "^INVARIANT Reach" "$dir/MC.cfg"; then',
   '  name=$(sed -n "s/^INVARIANT //p" "$dir/MC.cfg")',
-  '  sed "s/ReachNegated/$name/g" "$TLC_REACH_LOG"',
+  '  sed "s/ReachNegated/$name/g" "$TLC_LOG"',
   '  exit 12',
   'fi',
   'echo "Model checking completed. No error has been found."',
   'echo "4 distinct states found"',
 ].join("\n");
 
-function reachFixture(lines, java = reachJava, log = "tlc-reach.log") {
-  const setup = matrixFixture(lines, java.replaceAll('"$TLC_REACH_LOG"', `"${join(logs, log)}"`));
-  return setup;
-}
+const reachFixture = (lines, java = reachJava, log = "tlc-reach.log") => matrixFixture(lines, java, log);
 
 test("reach checks report the shortest witness and count separately", () => {
   const { matrix } = reachFixture(["spec a/One.tla", "reach Full | n=1", "run n=1 | N=1"]);
