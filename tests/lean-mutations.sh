@@ -148,4 +148,21 @@ if grep -q '^DETECTED' "$work/result"; then
   echo 'FAIL invalid definition reported as a detected mutation'
   exit 1
 fi
+
+# A mutation that changes a theorem's statement must never count as a proof
+# failure, whether the statement stops elaborating or Lean binds the renamed
+# definition as an automatic implicit variable so that only the proof fails.
+printf 'mutation rename step\n- def step (n : Nat)\n+ def step2 (n : Nat)\n' > "$work/Model/Step.mutations"
+for theorem in 'property (n : Nat) : n < step n := by simp [step]' \
+  'unapplied (f : Nat → Nat) (h : f = step) : f 0 = 1 := by subst h; rfl'; do
+  printf 'namespace Step\ndef step (n : Nat) : Nat := n + 1\ntheorem %s\nend Step\n' "$theorem" > "$work/Model/Step.lean"
+  bash "$scripts/lean-check.sh" "$work" --freeze Model/Step.lean
+  if python3 "$scripts/mutate.py" "$work/Model/Step.mutations" > "$work/result"; then
+    echo "FAIL changed statement of ${theorem%% *} counted as a detected mutation"
+    exit 1
+  fi
+  cat "$work/result"
+  grep -q "^FAIL mutation 'rename step' did not reach a verdict:" "$work/result"
+  grep -q "^theorem Step.${theorem%% *}: the mutation changes its statement" "$work/result"
+done
 echo 'ok: qualified coverage and proof-sensitivity reporting checked with real Lean'
