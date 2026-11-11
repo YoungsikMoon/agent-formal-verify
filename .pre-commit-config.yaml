@@ -25,6 +25,11 @@ repos:
     hooks:
       - id: shellcheck
         args: [--severity=warning]
+      # SC2251 is info-level: a `! cmd` assertion does not stop a `set -e` script.
+      - id: shellcheck
+        alias: shellcheck-negated-errexit
+        name: shellcheck (negated commands under set -e)
+        args: [--include=SC2251]
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: 25bcf95026b96e2dd3c0aec3090c3d6ef6ca2e6c # frozen: v0.17.3
     hooks:
