@@ -53,8 +53,7 @@ test("Lean preparation reuses ready pins and installs a changed repository pin o
 test("Lean preparation reports failure when installation does not produce a working toolchain", () => {
   const dir = fixture();
   const project = join(dir, "model");
-  mkdirSync(project);
-  writeFileSync(join(project, "lean-toolchain"), leanPin + "\n");
+  writeLeanProject(project);
   command(dir, "elan", 'if [ "$1" = "toolchain" ]; then exit 0; fi; exit 1');
   const result = run(dir, "setup.sh", ["lean", project]);
   assert.equal(result.status, 3);
