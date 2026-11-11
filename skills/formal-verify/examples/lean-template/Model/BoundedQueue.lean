@@ -31,6 +31,9 @@ def Invariant (w : Nat) (s : State) : Prop := s.consumed ≤ s.next ∧ s.next �
 
 instance (w : Nat) (s : State) : Decidable (Invariant w s) := by unfold Invariant; infer_instance
 
+/-- The state before any item is claimed. -/
+def init : State := ⟨0, 0⟩
+
 /-- Return the next state, or `none` when the guard fails. -/
 def claim (w : Nat) (s : State) : Option State :=
   if s.next < s.consumed + w then some { s with next := s.next + 1 } else none
@@ -56,15 +59,15 @@ def badPairs (w n : Nat) : List (State × State) :=
 #guard (badPairs 2 6).isEmpty
 
 def reachable (w : Nat) : Nat → List State
-  | 0 => [⟨0, 0⟩]
+  | 0 => [init]
   | steps + 1 =>
     let states := reachable w steps
     states ++ states.flatMap fun s => [claim w s, consume s].filterMap id
 
 #guard (reachable 2 6).any fun s => s.next == s.consumed + 2
 
-theorem invariant_init (w : Nat) : Invariant w ⟨0, 0⟩ := by
-  simp [Invariant]
+theorem invariant_init (w : Nat) : Invariant w init := by
+  simp [Invariant, init]
 
 theorem claim_keeps_invariant (w : Nat) (s t : State) (hs : Invariant w s) (h : claim w s = some t) :
     Invariant w t := by

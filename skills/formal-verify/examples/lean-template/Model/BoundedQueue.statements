@@ -158,6 +158,20 @@
       "valueHash": null
     },
     {
+      "name": "BoundedQueue.init",
+      "kind": "definition",
+      "type": "BoundedQueue.State",
+      "typeHash": "11103524df36d3cdaaecfad5a8e4ea76bfd435294bead5f2acdefbe05c6aef71",
+      "valueHash": "bd3dc3f1382ed19a578267073024d6fbc246b465d6e7c14b0aed9787c0cbeef7"
+    },
+    {
+      "name": "BoundedQueue.init.eq_1",
+      "kind": "theorem",
+      "type": "BoundedQueue.init = { next := 0, consumed := 0 }",
+      "typeHash": "5e405f4acd1a41903fdd240d23ad3be5e67fb0883e48136d1ace01dfa756fdc9",
+      "valueHash": null
+    },
+    {
       "name": "BoundedQueue.instDecidableEqState",
       "kind": "definition",
       "type": "DecidableEq BoundedQueue.State",
@@ -202,8 +216,8 @@
     {
       "name": "BoundedQueue.invariant_init",
       "kind": "theorem",
-      "type": "∀ (w : Nat), BoundedQueue.Invariant w { next := 0, consumed := 0 }",
-      "typeHash": "4b1f7285f830075fb2bcc18109f32754cf395e0c65621d765f0d5164ad92c5c5",
+      "type": "∀ (w : Nat), BoundedQueue.Invariant w BoundedQueue.init",
+      "typeHash": "20543cdf11e2b3d3fd74663519eb516029af8d9b758253502dbbe486d82f9800",
       "valueHash": null
     },
     {
@@ -218,7 +232,7 @@
       "kind": "definition",
       "type": "(motive : Nat → Sort u_1) → (x : Nat) → (Unit → motive 0) → ((steps : Nat) → motive steps.succ) → motive x",
       "typeHash": "762abfa7addd0bd8d4a548d7221baf925cf09a9c172d54d9d49a913a6c7908c2",
-      "valueHash": "77abc13fab290d842c22cc52064b8c6050a8bf3ccf386bf1c35069c35fc13eef"
+      "valueHash": "4640df5f66530d2a7fca0c556fe4417fcd02d02d38f00ed860f5a87be762295d"
     },
     {
       "name": "BoundedQueue.vectors",

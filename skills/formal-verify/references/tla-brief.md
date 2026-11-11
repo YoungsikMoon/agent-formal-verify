@@ -53,13 +53,14 @@ The matrix runner prints PASS or FAIL per run and a SUMMARY line. A failing run 
 
 Each reach check prints its own PASS with the shortest witness length in states and transitions, or FAIL when the model never reaches the state. Reach searches use one worker and ignore deadlock so they can finish exploring a stopped model. The SUMMARY counts reach checks separately; its state total covers ordinary runs only. Use `detects reach:<Operator>` for a mutation that removes a required state. Reach checks do not count as properties for mutation coverage.
 
-Before reporting a pass, list mutations that represent plausible code bugs in the mutations file. Try replacing `while` with `if`, removing a broadcast, replacing FIFO order with stack order, leaving a flag set, or taking an item without removing it. Each mutation names the one property that must fail on it. The mutation runner applies each to a copy of the spec. Revise a property it reports as UNCOVERED, and the property or the mutation behind each MISSED line.
+Before reporting a pass, list mutations that represent plausible code bugs in the mutations file. Try replacing `while` with `if`, removing a broadcast, replacing FIFO order with stack order, leaving a flag set, or taking an item without removing it. Each mutation names the one property that must fail on it. For each fix commit in your row, add a mutation that restores the behaviour the code had before the fix, with the commit's short hash in its label. The mutation runner applies each to a copy of the spec. Revise a property it reports as UNCOVERED, and the property or the mutation behind each MISSED line.
 
 ## Report
 
 Report only after reading the output of both commands. If either exits 3 with `UNAVAILABLE`, report "not checked" with the printed remedy; do not claim a pass or a model failure. Give:
 
 - the file paths, both commands and their SUMMARY lines;
+- each fix commit from the row and the verdict of its mutation;
 - each reach predicate, its selected run and witness length;
 - each FAIL line, with every step of its trace mapped to a code event and `file:line`;
 - for each counter-example, whether the shipped constants and callers can reach it;

@@ -498,14 +498,25 @@ test("the mutation runner rejects text that is absent or repeated, and a propert
   }
 });
 
-test("the mutation runner names the Lean declarations that fail on a mutation", () => {
+function freezeRecord(path, theorems) {
+  const declarations = theorems.map((name) => ({ name, kind: "theorem", type: "", typeHash: "", valueHash: null }));
+  writeFileSync(path, JSON.stringify({ format: 1, toolchain: "leanprover/lean4:v4.34.1", module: "Model", declarations }));
+}
+
+function leanProject() {
   const dir = fixture();
   const project = join(dir, "lean");
   mkdirSync(join(project, "Model"), { recursive: true });
   writeFileSync(join(project, "lakefile.toml"), 'name = "model"\n');
   writeFileSync(join(project, "lean-toolchain"), "leanprover/lean4:v4.34.1\n");
+  return { dir, project };
+}
+
+test("the mutation runner names the Lean declarations that fail on a mutation", () => {
+  const { dir, project } = leanProject();
   const model = "def step (n : Nat) : Nat := n + 1\n\ntheorem step_grows (n : Nat) :\n    n < step n := by\n  simp [step]\n#guard step 1 == 2\n";
   writeFileSync(join(project, "Model/Step.lean"), model);
+  freezeRecord(join(project, "Model/Step.statements"), ["step_grows"]);
   const mutations = (text) => writeFileSync(join(project, "Model/Step.mutations"), text);
   // Lean reports an error in the proof and at the guard when the step is gone,
   // and in the definition when it does not parse.
@@ -527,6 +538,47 @@ test("the mutation runner names the Lean declarations that fail on a mutation", 
   includes(broken.stdout, "FAIL mutation 'half a step' did not reach a verdict:\n");
   includes(broken.stdout, "error: unexpected token");
   assert.equal(readFileSync(join(project, "Model/Step.lean"), "utf8"), model);
+});
+
+test("the mutation runner reports a frozen public Lean theorem that no mutation breaks", () => {
+  const { dir, project } = leanProject();
+  writeFileSync(join(project, "Model/Step.lean"), [
+    "namespace Outer",
+    "namespace Inner",
+    "def step (n : Nat) : Nat := n + 1",
+    "theorem step_grows (n : Nat) : n < step n := by simp [step]",
+    "theorem State.vacuous (n : Nat) (h : n < 0) : n < step n := absurd h (Nat.not_lt_zero n)",
+    "private theorem helper (n : Nat) : 0 ≤ n := Nat.zero_le n",
+    "theorem added (n : Nat) : n ≤ n := Nat.le_refl n",
+    "end Inner",
+    "end Outer",
+  ].join("\n") + "\n");
+  freezeRecord(join(project, "Model/Step.statements"),
+    ["Outer.Inner.State.vacuous", "Outer.Inner.helper", "Outer.Inner.step.eq_1", "Outer.Inner.step_grows"]);
+  writeFileSync(join(project, "Model/Step.mutations"), "mutation no step\n- n + 1\n+ n\n");
+  // Without the step, only the proof of step_grows fails; the vacuous theorem
+  // holds whatever step does.
+  command(dir, "elan", [
+    '[ "$4" = "--version" ] && exit 0',
+    'grep -q ":= n$" "$8" || exit 0',
+    'echo "$8:4:44: error: unsolved goals"; exit 1',
+  ].join("\n"));
+  const result = run(dir, "mutate.py", [join(project, "Model/Step.mutations")]);
+  assert.equal(result.stdout, "DETECTED no step: fails theorem step_grows\nUNCOVERED theorem State.vacuous\n"
+    + "SUMMARY 1 of 1 mutations detected, 1 properties without a mutation\n");
+  assert.equal(result.status, 1);
+});
+
+test("the mutation runner rejects a Lean model without a statements record before running Lean", () => {
+  const { dir, project } = leanProject();
+  writeFileSync(join(project, "Model/Step.lean"), "def step (n : Nat) : Nat := n + 1\n");
+  writeFileSync(join(project, "Model/Step.mutations"), "mutation no step\n- n + 1\n+ n\n");
+  command(dir, "elan", 'echo elan >> "$TASK_TRACE"; exit 0');
+  const result = run(dir, "mutate.py", [join(project, "Model/Step.mutations")]);
+  assert.equal(result.stdout, `FAIL ${join(realpathSync(project), "Model/Step.statements")} is missing; `
+    + "freeze the model with lean-check.sh --freeze before checking its mutations\n");
+  assert.equal(result.status, 1);
+  assert.equal(existsSync(join(dir, "calls")), false);
 });
 
 
@@ -578,6 +630,7 @@ test("mutation runners preserve unavailable status and never report a missed mut
     } else {
       writeFileSync(join(dir, "lakefile.toml"), 'name = "model"\n');
       writeFileSync(join(dir, "lean-toolchain"), "leanprover/lean4:v4.34.1\n");
+      freezeRecord(join(dir, "One.statements"), []);
       command(dir, "elan", "exit 1");
     }
     const result = run(dir, "mutate.py", [path], { TLC_JAR: join(dir, "absent.jar") });

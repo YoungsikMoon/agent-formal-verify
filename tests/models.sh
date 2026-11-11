@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Runs the real TLC and Lean checkers and the mutation runner on the bundled
 # examples, then on copies with one guard weakened, a hidden axiom, clashing
-# names, an unowned file or an undetected mutation, which they must reject.
+# names, an unowned file, an undetected mutation or a theorem no mutation
+# breaks, which they must reject.
 # Needs the tools that setup.sh prepares; see
 # skills/formal-verify/references/setup.md.
 #
@@ -56,6 +57,14 @@ grep -qF "VECTOR w=0 input=0,0 claim=none consume=none" "$work/vectors.out"
 grep -qF "VECTOR w=4 input=4,0 claim=none" "$work/vectors.out"
 grep -qF "VECTOR w=4 input=3,0 claim=some(4,0)" "$work/vectors.out"
 python3 "$scripts/mutate.py" "$work/lean/Model/BoundedQueue.mutations"
+
+# A theorem whose hypotheses cannot all hold passes whatever the code does, so no mutation breaks it.
+cp -R "$work/lean" "$work/lean-vacuous"
+printf 'theorem vacuous (w : Nat) (s t : BoundedQueue.State) (hs : BoundedQueue.Invariant w s)\n    (hlt : s.next < s.consumed) (h : BoundedQueue.claim w s = some t) : BoundedQueue.Invariant w t := by\n  simp only [BoundedQueue.Invariant] at hs; omega\n' >> "$work/lean-vacuous/Model/BoundedQueue.lean"
+bash "$scripts/lean-check.sh" "$work/lean-vacuous" --freeze Model/BoundedQueue.lean
+rejected python3 "$scripts/mutate.py" "$work/lean-vacuous/Model/BoundedQueue.mutations" | tee "$work/lean.out"
+grep -q "^UNCOVERED theorem vacuous$" "$work/lean.out"
+
 cp -R "$work/lean" "$work/lean-unreachable"
 sed -i.orig 's|if s.next < s.consumed + w then|if s.next < s.consumed + w - 1 then|' "$work/lean-unreachable/Model/BoundedQueue.lean"
 rejected bash "$scripts/lean-check.sh" "$work/lean-unreachable" | tee "$work/lean-unreachable.out"
@@ -195,4 +204,4 @@ rejected bash "$scripts/kani-check.sh" "$work/kani" proofs::claim_keeps_invarian
 grep -q '^FAIL proofs::claim_keeps_invariant' "$work/kani.out"
 grep -q 'Concrete playback unit test' "$work/kani.out"
 
-echo "ok: all examples pass and detect their mutations; the weakened guards, a hidden axiom, clashing names and an unowned file are rejected"
+echo "ok: all examples pass and detect their mutations; the weakened guards, a hidden axiom, clashing names, an unowned file and a vacuous theorem are rejected"
