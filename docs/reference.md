@@ -69,7 +69,7 @@ For Pi:
 pi update --extensions
 ```
 
-Pin a release by installing `npm:agent-formal-verify@0.4.6` or `git:github.com/michael-denyer/agent-formal-verify@v0.4.6`; a pinned package does not move on update.
+Pin a release by installing `npm:agent-formal-verify@0.4.7` or `git:github.com/michael-denyer/agent-formal-verify@v0.4.7`; a pinned package does not move on update.
 
 For OpenCode, `opencode plugin check` reports a newer release on npm, or a newer commit on the default branch for a Git install. To install it, pass the specifier you installed:
 
@@ -78,7 +78,7 @@ opencode plugin update agent-formal-verify
 opencode plugin update 'git+https://github.com/michael-denyer/agent-formal-verify.git'
 ```
 
-Pin a release in OpenCode by installing `agent-formal-verify@0.4.6`.
+Pin a release in OpenCode by installing `agent-formal-verify@0.4.7`.
 
 Tool caches survive plugin updates. Run setup again only if a release introduces a new system prerequisite.
 
@@ -90,7 +90,7 @@ In a repository that already has models, it first reruns them and reads the comm
 
 A helper that cannot run a tool prints `UNAVAILABLE` and exits 3. Report that target as "not checked" with the remedy, never as a pass or a model failure. Failed checks exit 1 and usage errors exit 2.
 
-Before reporting a pass, it requires mutations that demonstrate the properties detect relevant bugs. They are kept in a file beside each model, and the mutation runner rechecks them. Every public theorem that a Lean model freezes must fail on one of them. Each bug fix in the covered code's history is replayed as a mutation where the runner can express it. When the modelling agents report, the skill reruns every check itself and reverts any change to an existing model's properties that the commit history does not support. The Lean checker audits every declaration for `sorry` and for axioms beyond Lean's three standard ones. For failures, it requires source locations, reachability checks, and a reproduction where practical. The agent changes code, commits and opens pull requests only when you ask for fixes; it then fixes the code and model together, with one PR per bug. It fixes only a counter-example that shipped settings can reach, and only with a reproduction unless none is practical. Each PR includes any reproducing test and names the property that failed. The agent uses a tool you name and reports what it leaves unchecked.
+Before reporting a pass, it requires mutations that demonstrate the properties detect relevant bugs. They are kept in a file beside each model, and the mutation runner rechecks them. Every public theorem that a Lean model freezes must fail on one of them. Each bug fix in the covered code's history is replayed as a mutation where the runner can express it. When the modelling agents report, the skill reruns every check itself and reverts any change to an existing model's properties that the commit history does not support. The skill also asks whether to add an independent review, one agent per model. A reviewer that did not write the model reads its properties against the code, without the modelling agent's report, and proposes the bugs it expects to pass as mutations. A property that misses one goes back to a modelling agent. When the skill cannot ask, as in a headless run, it skips the review and says so. The Lean checker audits every declaration for `sorry` and for axioms beyond Lean's three standard ones. For failures, it requires source locations, reachability checks, and a reproduction where practical. The agent changes code, commits and opens pull requests only when you ask for fixes; it then fixes the code and model together, with one PR per bug. It fixes only a counter-example that shipped settings can reach, and only with a reproduction unless none is practical. Each PR includes any reproducing test and names the property that failed. The agent uses a tool you name and reports what it leaves unchecked.
 
 For a closed Lean proof, reports give the number of differential vectors that agree with the production function and the integer widths, or say that the comparison was not run. Each counter-example is labelled `reproduced`, `reachable at shipped settings`, or `model-only`, according to the production evidence.
 
