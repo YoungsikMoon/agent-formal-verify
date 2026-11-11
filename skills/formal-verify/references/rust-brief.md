@@ -26,7 +26,8 @@ The row in your task gives the commits since the harness was last synced and
 says whether any of them changed the guarantee on purpose. The harness calls the
 production code, so drift shows as a compile error or a failed check. Update its
 bounds, stubs, contracts and covers where they no longer fit the code. Change a
-property only where the row cites that evidence. Add a mutation, with `detects`
+property only with that evidence or a specification correction accepted by the
+main thread under step 3 of the skill. Add a mutation, with `detects`
 naming the harness, for each branch or step the update adds. Update the header
 to the code you read.
 

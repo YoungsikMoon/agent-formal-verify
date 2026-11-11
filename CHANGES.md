@@ -1,5 +1,11 @@
 # Changes
 
+## Unreleased
+
+Lean mutation coverage now reads declaration identities and source ranges from the pinned Lean frontend. Indented public theorems remain covered, and equal short names in different namespaces remain separate targets. Structure and class projections and instance declarations are not property targets, including local and scoped instances. Wrapped guards and examples remain detectable, and their reported locations refer to the original model. Guard and example failures cannot cover named theorems; errors outside recognized properties are rejected. The runner checks that the original module elaborates before testing mutations.
+
+Lean mutation results explicitly measure whether existing proofs break; they do not establish that a statement is false or its hypotheses can hold. The skill reports those evidence gaps separately. Existing properties may be corrected and re-frozen when the main thread accepts source-backed specification evidence, even when production code is unchanged; unsupported weakening remains prohibited.
+
 ## 0.4.8 - pin Lean 4.35.0
 
 The Lean template pins Lean 4.35.0 in place of 4.34.1. The template records the same 34 declarations with the same statement types under both versions. Lean 4.35.0 builds the bodies of three generated `match_1` matchers differently, so their value fingerprints changed, and the template's statements are re-frozen. A project copied from the template keeps its own pin. After its `lean-toolchain` changes, the checker asks for a review and a fresh `--freeze`, as before. The checker still supports pins from Lean 4.20.0.

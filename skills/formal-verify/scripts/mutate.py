@@ -11,14 +11,16 @@ per mutation:
   DETECTED <label>: <what failed>   the mutated model fails as it should
   MISSED <label>                    the mutated model still passes
   UNCOVERED <Property>              a TLA+ property or Rust harness no mutation
-                                    targets, or a Lean theorem no mutation breaks
+                                    targets, or a Lean proof no mutation breaks
 
 A TLA+ mutation is checked against the property or reach operator it names,
 using the matrix runs. A Lean mutation is elaborated in the project, the mutated
 module alone, and reported with the theorems, lemmas, examples and #guard
 lines that fail. Every public theorem recorded in the model's .statements file
-must fail on some mutation itself; a failing #guard does not cover it. Private
-theorems are proof helpers and need no mutation. Exits 1 on a MISSED or
+must have its proof fail on some mutation; a failing #guard does not cover it.
+Lean reports fully qualified theorem names from elaborated declarations.
+This measures proof sensitivity, not whether a mutated statement is false or
+its hypotheses can hold. Private theorems are proof helpers and need no mutation. Exits 1 on a MISSED or
 UNCOVERED line, when a Lean model has no .statements file, or when a mutated
 model fails for another reason, such as a syntax error or a definition that
 no longer compiles.
@@ -51,13 +53,12 @@ sys.dont_write_bytecode = True
 import kani
 
 HERE = Path(__file__).resolve().parent
-LEAN_PROPERTY = ("theorem", "lemma", "example", "#guard")
-LEAN_DECLARATION = re.compile(r"^(?:@\[.*?\] |private |protected |noncomputable )*((?:theorem|lemma|def|abbrev|instance|example|structure|inductive)\b(?: [^\s:(\[{]+)?|#guard.*|#eval.*)")
+LEAN_NOTE = "NOTE Lean detections mean existing proofs fail, not that theorem statements are false or hypotheses satisfiable."
 # Fails the same way as lean-check.sh when the pin is not ready, without installing it.
 LEAN = """source "$1/lean-tools.sh"
 toolchain=$(lean_pin "$2") || { status=$?; echo "$toolchain"; exit "$status"; }
 lean_pin_ready "$toolchain" || { echo "UNAVAILABLE $toolchain is not ready; run bash $1/setup.sh lean $2"; exit 3; }
-elan run "$toolchain" lake --dir "$2" env lean "$3"
+elan run "$toolchain" lake --dir "$2" env lean --run "$1/lean-mutations.lean" "$3"
 """
 
 
@@ -165,28 +166,69 @@ def check_tla(spec, kinds, reaches, runs, mutation, work):
     return "ERROR", done.stdout + done.stderr
 
 
-def check_lean(model, project, mutation, work):
-    """Return (verdict, detail) from Lean on the mutated module."""
-    source, copy = mutated(model, mutation), work / model.name
-    copy.write_text(source, encoding="utf-8")
-    done = subprocess.run(["bash", "-c", LEAN, "bash", str(HERE), str(project), str(copy)],
+def lean_analysis(model, project):
+    """Get Lean's declaration identities and error positions, never infer them from source text."""
+    done = subprocess.run(["bash", "-c", LEAN, "bash", str(HERE), str(project), str(model)],
                           capture_output=True, text=True, check=False)
     output = done.stdout + done.stderr
     if done.returncode == 3:
-        return "UNAVAILABLE", done.stdout + done.stderr
-    if done.returncode == 0:
+        print(output.strip())
+        sys.exit(3)
+    records = [line.removeprefix("AFV_LEAN ") for line in done.stdout.splitlines() if line.startswith("AFV_LEAN ")]
+    if done.returncode != 0 or len(records) != 1:
+        stop(f"Lean declaration analysis did not complete:\n{output.strip()}")
+    try:
+        analysis = json.loads(records[0])
+        for field in ("declarations", "commands", "errors"):
+            if not isinstance(analysis[field], list):
+                raise TypeError(f"{field} must be a list")
+    except (ValueError, KeyError, TypeError) as error:
+        stop(f"invalid Lean declaration analysis: {error}")
+    return analysis
+
+
+def contains(item, position):
+    return item["start"] <= position < item["end"]
+
+
+def original_location(model, mutation, source, position):
+    """Map an unchanged command back across the one replacement; label inserted commands explicitly."""
+    original = model.read_text(encoding="utf-8")
+    old, new = "\n".join(mutation.old), "\n".join(mutation.new)
+    start = original.index(old)
+    offset = sum(len(line) + 1 for line in source.split("\n")[:position[0] - 1]) + position[1]
+    if offset < start:
+        original_offset, suffix = offset, ""
+    elif offset >= start + len(new):
+        original_offset, suffix = offset + len(old) - len(new), ""
+    else:
+        original_offset, suffix = start, " (mutation replacement)"
+    line = original.count("\n", 0, original_offset) + 1
+    return f"{model}:{line}{suffix}"
+
+
+def check_lean(model, project, mutation, work):
+    """Attribute every error to an elaborated theorem or a parsed guard/example command."""
+    copy = work / model.name
+    source = mutated(model, mutation)
+    copy.write_text(source, encoding="utf-8")
+    analysis = lean_analysis(copy, project)
+    if not analysis["errors"]:
         return "MISSED", ""
-    lines, failed = source.splitlines(), []
-    for match in re.finditer(rf"^{re.escape(str(copy))}:(\d+):\d+: error", output, re.MULTILINE):
-        for line in reversed(lines[:int(match[1])]):
-            if declaration := LEAN_DECLARATION.match(line):
-                if declaration[1] not in failed:
-                    failed.append(declaration[1])
-                break
-    if not failed or not all(name.startswith(LEAN_PROPERTY) for name in failed):
-        return "ERROR", output
+    failed = []
+    for error in analysis["errors"]:
+        position = [error["pos"]["line"], error["pos"]["column"]]
+        names = ["theorem " + decl["name"] for decl in analysis["declarations"]
+                 if decl["theorem"] and contains(decl, position)]
+        if not names:
+            names = [f"{cmd['property']} at {original_location(model, mutation, source, cmd['start'])}"
+                     for cmd in analysis["commands"]
+                     if cmd["property"] and contains(cmd, position)]
+        if error["fileName"] != str(copy) or not names:
+            return "ERROR", f"{error['fileName']}:{position[0]}:{position[1]}: {error['data']}"
+        failed.extend(name for name in names if name not in failed)
     mutation.failed = failed
-    return "DETECTED", "fails " + "; ".join(failed)
+    return "DETECTED", "proof/check fails: " + "; ".join(failed)
 
 
 def check_rust(model, project, verifier, bounds, mutation, work):
@@ -214,23 +256,21 @@ def tla_runner(spec, mutations):
     return set(kinds), partial(check_tla, spec, kinds, reaches, runs)
 
 
-def lean_theorems(model):
-    """Return the public theorems of model that its .statements file records, as check_lean names them."""
+def lean_theorems(model, project):
+    """Intersect frozen identities with Lean's public source declarations, including their namespaces."""
     record = model.with_suffix(".statements")
     if not record.is_file():
         stop(f"{record} is missing; freeze the model with lean-check.sh --freeze before checking its mutations")
-    frozen = [entry["name"] for entry in json.loads(record.read_text(encoding="utf-8"))["declarations"]
-              if entry["kind"] == "theorem"]
-    theorems = set()
-    for line in model.read_text(encoding="utf-8").splitlines():
-        declaration = LEAN_DECLARATION.match(line)
-        if not declaration or not declaration[1].startswith(("theorem ", "lemma ")) or "private " in line[:declaration.start(1)]:
-            continue
-        # The record holds full names and the source the name inside its namespace.
-        name = declaration[1].partition(" ")[2]
-        if any(full == name or full.endswith("." + name) for full in frozen):
-            theorems.add(declaration[1])
-    return theorems
+    try:
+        frozen = {entry["name"] for entry in json.loads(record.read_text(encoding="utf-8"))["declarations"]
+                  if entry["kind"] == "theorem"}
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        stop(f"invalid statements record {record}: {error}")
+    analysis = lean_analysis(model, project)
+    if analysis["errors"]:
+        stop(f"unmutated Lean model does not elaborate: {analysis['errors'][0]['data']}")
+    return {"theorem " + decl["name"] for decl in analysis["declarations"]
+            if decl["theorem"] and not decl["private"] and decl["name"] in frozen}
 
 
 def lean_runner(model, mutations):
@@ -240,7 +280,7 @@ def lean_runner(model, mutations):
     for mutation in mutations:
         if mutation.detects:
             stop(f"mutation '{mutation.label}': Lean mutations take no detects line; the runner names the theorems that fail")
-    return lean_theorems(model), partial(check_lean, model, project)
+    return lean_theorems(model, project), partial(check_lean, model, project)
 
 
 def rust_runner(model, mutations):
@@ -296,6 +336,8 @@ def main():
     uncovered = sorted(targets - covered)
     for name in uncovered:
         print(f"UNCOVERED {name}")
+    if model.suffix == ".lean":
+        print(LEAN_NOTE)
     print(f"SUMMARY {detected} of {len(mutations)} mutations detected"
           + (f", {len(uncovered)} properties without a mutation" if uncovered else ""))
     sys.exit(0 if detected == len(mutations) and not uncovered else 1)
