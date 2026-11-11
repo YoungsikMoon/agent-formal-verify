@@ -499,8 +499,8 @@ test("the mutation runner rejects text that is absent or repeated, and a propert
 });
 
 function freezeRecord(path, theorems) {
-  const declarations = theorems.map((name) => ({ name, kind: "theorem", type: "", typeHash: "", valueHash: null }));
-  writeFileSync(path, JSON.stringify({ format: 1, toolchain: "leanprover/lean4:v4.34.1", module: "Model", declarations }));
+  const declarations = theorems.map((name) => ({ name, kind: "theorem" }));
+  writeFileSync(path, JSON.stringify({ declarations }));
 }
 
 function leanProject() {
