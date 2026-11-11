@@ -12,6 +12,8 @@ The mutation runner checks that a Lean project's pinned toolchain is ready once 
 
 The Lean checker derives each source's module name once and passes it to the frozen-statement step, which derived it a second time from the same path. When Lake reports a build file outside `.lake/build/lib/lean`, the checker now names it and stops instead of auditing a wrong import.
 
+The TLA+ matrix runner moved from bash into `tlc.py`, and `tlc-matrix.sh` now checks for Python 3 and runs it, as `kani-check.sh` runs `kani.py`. Its output and exit status are unchanged. The mutation runner now reads the matrix with the same parser and runs each mutation through the same runner, instead of parsing the matrix a second time and reading verdicts back out of printed lines. So it now finds its spec's section when the `spec` line writes the path another way, such as `./Name.tla`, and it checks TLC once per run instead of once per mutation. A malformed line anywhere in the matrix now stops the mutation runner, where before it noticed only those in its own spec's section.
+
 The Lean and Kani templates now ask the adapter to record the source files, line ranges, covered functions and `Source read at <commit>` line in the model's header, as the TLA+ template and all three briefs already did.
 
 ## 0.4.8 - pin Lean 4.35.0
