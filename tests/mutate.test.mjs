@@ -116,8 +116,8 @@ function leanProject() {
 
 const leanNote = "NOTE Lean detections mean existing proofs fail, not that theorem statements are false or hypotheses satisfiable.\n";
 
-const leanDecl = (name, line, { private: hidden = false, theorem = true } = {}) =>
-  ({ name, private: hidden, theorem, start: [line, 0], end: [line + 1, 0] });
+const leanDecl = (name, line, { private: hidden = false, theorem = true, type = "Prop" } = {}) =>
+  ({ name, private: hidden, theorem, type, start: [line, 0], end: [line + 1, 0] });
 
 const leanError = (line, extra = {}) => ({ pos: { line, column: 2 }, data: "unsolved goals", ...extra });
 
@@ -254,6 +254,17 @@ test("Lean mutations reject definition, unattributed and external-file errors", 
       leanAnalysis(decls), noStep, [{ text: ":= n\n", analysis: leanAnalysis(decls, [error]) }]);
     assert.equal(result.status, 1);
     includes(result.stdout, "FAIL mutation 'no step' did not reach a verdict:");
+    excludes(result.stdout, "DETECTED");
+  }
+});
+
+test("a Lean theorem whose statement the mutation changes or adds cannot count as a failing proof", () => {
+  const baseline = leanAnalysis([leanDecl("Step.property", 2)]);
+  for (const decl of [leanDecl("Step.property", 2, { type: "sorry" }), leanDecl("Step.added", 2)]) {
+    const result = leanMutations("def step (n : Nat) : Nat := n + 1\n", ["Step.property"], baseline, noStep,
+      [{ text: ":= n\n", analysis: leanAnalysis([decl], [leanError(2)]) }]);
+    assert.equal(result.status, 1);
+    includes(result.stdout, `FAIL mutation 'no step' did not reach a verdict:\ntheorem ${decl.name}: the mutation changes its statement`);
     excludes(result.stdout, "DETECTED");
   }
 });
