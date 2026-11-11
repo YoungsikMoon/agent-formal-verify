@@ -26,9 +26,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 dir=$(cd "$dir" && pwd)
 # shellcheck source=skills/formal-verify/scripts/lean-tools.sh
 source "$HERE/lean-tools.sh"
-toolchain=$(lean_pin "$dir") || { status=$?; echo "$toolchain"; exit "$status"; }
-lean_pin_ready "$toolchain" \
-  || { echo "UNAVAILABLE $toolchain is not ready; run bash $HERE/setup.sh lean $dir"; exit 3; }
+toolchain=$(lean_ready_pin "$dir") || { status=$?; echo "$toolchain"; exit "$status"; }
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT

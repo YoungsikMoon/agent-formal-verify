@@ -13,3 +13,12 @@ lean_pin() {
 lean_pin_ready() {
   elan run "$1" lake --version > /dev/null 2>&1
 }
+
+# Prints the pin of the Lake project in $1 when it is ready to run, or why not.
+lean_ready_pin() {
+  local toolchain status
+  toolchain=$(lean_pin "$1") || { status=$?; echo "$toolchain"; return "$status"; }
+  lean_pin_ready "$toolchain" \
+    || { echo "UNAVAILABLE $toolchain is not ready; run bash $(dirname "${BASH_SOURCE[0]}")/setup.sh lean $1"; return 3; }
+  echo "$toolchain"
+}
