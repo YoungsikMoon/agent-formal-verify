@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """Store or check declaration fingerprints emitted by the Lean audit."""
 
+import argparse
 import hashlib
 import json
 import sys
@@ -26,6 +27,16 @@ def declarations(audit):
         record["valueHash"] = None if raw["valueExpr"] is None else fingerprint(raw["valueExpr"])
         modules.setdefault(raw["module"], []).append(record)
     return modules
+
+
+def records_by_name(modules, module):
+    """Return the module's audited records by name, refusing two declarations with one name."""
+    records = {}
+    for record in modules.get(module, []):
+        if record["name"] in records:
+            raise ValueError(f"ambiguous declaration identity {record['name']} in {module}")
+        records[record["name"]] = record
+    return records
 
 
 def read_record(path):
@@ -62,57 +73,16 @@ def check_orphans(project):
     return int(failed)
 
 
-def main():
-    if sys.argv[1] == "orphans":
-        return check_orphans(Path(sys.argv[2]))
-    mode, toolchain, audit, oleans, *sources = sys.argv[1:]
-    modules = declarations(Path(audit))
-    paths = Path(oleans).read_text(encoding="utf-8").splitlines()
-    if len(paths) != len(sources):
-        raise ValueError("Lake did not return one module per source")
+def freeze(toolchain, modules, sources):
+    """Record every source's statements, writing none unless all of them can be recorded."""
     pending = []
-    failed = False
-    for source, olean in zip(sources, paths):
-        path = Path(source).with_suffix(".statements")
-        if mode != "freeze" and not path.exists():
-            continue
-        marker = "/.lake/build/lib/lean/"
-        if marker not in olean or not olean.endswith(".olean"):
-            raise ValueError(f"cannot identify module from {olean}")
-        module = olean.rsplit(marker, 1)[1].removesuffix(".olean").replace("/", ".")
-        current = {}
-        for record in modules.get(module, []):
-            if record["name"] in current:
-                raise ValueError(f"ambiguous declaration identity {record['name']} in {module}")
-            current[record["name"]] = record
-        if mode == "freeze" and not current:
+    for module, source in sources:
+        records = records_by_name(modules, module)
+        if not records:
             raise ValueError(f"no declaration records for {source}")
-        if mode == "freeze":
-            record = {"format": 1, "toolchain": toolchain, "module": module,
-                      "declarations": [current[name] for name in sorted(current)]}
-            pending.append((path, json.dumps(record, ensure_ascii=False, indent=2) + "\n"))
-            continue
-        frozen = read_record(path)
-        if frozen["toolchain"] != toolchain:
-            print(f"FROZEN {path}: toolchain changed from {frozen['toolchain']} to {toolchain}; review and run --freeze")
-            failed = True
-            continue
-        if frozen["module"] != module:
-            raise ValueError(f"{path}: expected module {module}, found {frozen['module']}")
-        changed = 0
-        for old in frozen["declarations"]:
-            new = current.get(old["name"])
-            if new is not None and all(old[key] == new[key] for key in ("kind", "typeHash", "valueHash")):
-                continue
-            changed += 1
-            print(f"FROZEN {old['name']}: statement changed")
-            print(f"  old: {old['type']}")
-            print(f"  new: {new['type'] if new else '(deleted)'}")
-            if new and old["valueHash"] != new["valueHash"]:
-                print("  definition value changed")
-        if changed == len(frozen["declarations"]):
-            print(f"FROZEN {path}: every recorded declaration changed; review the model and toolchain before --freeze")
-        failed |= changed > 0
+        record = {"format": 1, "toolchain": toolchain, "module": module,
+                  "declarations": [records[name] for name in sorted(records)]}
+        pending.append((source.with_suffix(".statements"), json.dumps(record, ensure_ascii=False, indent=2) + "\n"))
     for path, contents in pending:
         temporary = None
         try:
@@ -124,7 +94,59 @@ def main():
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
         print(f"FROZEN {path}: statements recorded; proofs not checked")
+    return 0
+
+
+def check(toolchain, modules, sources):
+    """Compare every recorded source's statements with the audit; a source without a record passes."""
+    failed = False
+    for module, source in sources:
+        path = source.with_suffix(".statements")
+        if not path.exists():
+            continue
+        records = records_by_name(modules, module)
+        frozen = read_record(path)
+        if frozen["toolchain"] != toolchain:
+            print(f"FROZEN {path}: toolchain changed from {frozen['toolchain']} to {toolchain}; review and run --freeze")
+            failed = True
+            continue
+        if frozen["module"] != module:
+            raise ValueError(f"{path}: expected module {module}, found {frozen['module']}")
+        changed = 0
+        for old in frozen["declarations"]:
+            new = records.get(old["name"])
+            if new is not None and all(old[key] == new[key] for key in ("kind", "typeHash", "valueHash")):
+                continue
+            changed += 1
+            print(f"FROZEN {old['name']}: statement changed")
+            print(f"  old: {old['type']}")
+            print(f"  new: {new['type'] if new else '(deleted)'}")
+            if new and old["valueHash"] != new["valueHash"]:
+                print("  definition value changed")
+        if changed == len(frozen["declarations"]):
+            print(f"FROZEN {path}: every recorded declaration changed; review the model and toolchain before --freeze")
+        failed |= changed > 0
     return int(failed)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("orphans", help="report records whose source file is gone").add_argument("project", type=Path)
+    for name, purpose in (("freeze", "record each source's statements"), ("check", "compare each recorded source's statements")):
+        command = commands.add_parser(name, help=purpose)
+        command.add_argument("toolchain")
+        command.add_argument("audit", type=Path, help="the audit's output, with its STATEMENT lines")
+        command.add_argument("module_names", type=Path, help="the module of each source, one per line in source order")
+        command.add_argument("sources", nargs="+", type=Path)
+    arguments = parser.parse_args()
+    if arguments.command == "orphans":
+        return check_orphans(arguments.project)
+    names = arguments.module_names.read_text(encoding="utf-8").splitlines()
+    if len(names) != len(arguments.sources):
+        raise ValueError("Lake did not return one module per source")
+    action = freeze if arguments.command == "freeze" else check
+    return action(arguments.toolchain, declarations(arguments.audit), zip(names, arguments.sources))
 
 
 if __name__ == "__main__":

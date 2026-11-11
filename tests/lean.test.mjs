@@ -133,6 +133,22 @@ test("the Lean checker names the minimum Lean version when the pin's Lake has no
   }
 });
 
+test("the Lean checker names a module path outside Lake's build layout instead of auditing it", () => {
+  const dir = fixture();
+  const project = join(dir, "model");
+  writeLeanProject(project);
+  writeFileSync(join(project, "Model.lean"), "");
+  command(dir, "elan", [
+    '[ "$4" = "--version" ] && exit 0',
+    '[ "$6" = "query" ] && { echo "/elsewhere/out/Model.olean"; exit 0; }',
+    'echo audit >> "$TASK_TRACE"; exit 1',
+  ].join("\n"));
+  const result = run(dir, "lean-check.sh", [project]);
+  assert.equal(result.status, 1);
+  includes(result.stdout, "cannot identify the module of /elsewhere/out/Model.olean");
+  assert.equal(existsSync(join(dir, "calls")), false);
+});
+
 test("the Lean checker fails when Lake fails, without auditing", () => {
   const { dir, result } = leanFixture("lake-search.log", { status: 1 });
   assert.equal(result.status, 1);
