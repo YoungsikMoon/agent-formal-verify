@@ -5,7 +5,7 @@ repos:
     hooks:
       - id: tests
         name: Test plugin metadata, skill references and verification helpers
-        entry: node --test tests/plugin.test.mjs tests/tools.test.mjs tests/kani.test.mjs
+        entry: node --test 'tests/*.test.mjs'
         language: system
         pass_filenames: false
         always_run: true
