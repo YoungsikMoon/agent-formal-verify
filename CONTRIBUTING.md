@@ -26,6 +26,8 @@ Test the plugin in Claude Code with `claude --plugin-dir /absolute/path/to/agent
 
 For skill changes, check a realistic request against the instructions. Confirm that the agent chooses suitable targets, preserves the source behaviour, and reports assumptions and proof gaps. Keep prose direct and remove slogans and unsupported claims.
 
+`bash tests/lean-mutations.sh` checks qualified theorem coverage, multiline replacements, guard and example attribution, and the limits of proof sensitivity with real Lean. It uses the template's prepared pin; pass `leanprover/lean4:v4.20.0` to exercise the oldest supported toolchain once that pin is installed.
+
 ## Submit a change
 
 Use an unprefixed branch name. Keep each pull request focused on one problem. Describe the problem, resulting behaviour and validation. Include a small reproduction for bug fixes and relevant tests for changed tool behaviour. Avoid including caches, generated build files or unrelated edits.

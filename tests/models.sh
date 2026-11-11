@@ -57,8 +57,9 @@ grep -qF "VECTOR w=0 input=0,0 claim=none consume=none" "$work/vectors.out"
 grep -qF "VECTOR w=4 input=4,0 claim=none" "$work/vectors.out"
 grep -qF "VECTOR w=4 input=3,0 claim=some(4,0)" "$work/vectors.out"
 python3 "$scripts/mutate.py" "$work/lean/Model/BoundedQueue.mutations"
+bash "$ROOT/tests/lean-mutations.sh"
 
-# A theorem whose hypotheses cannot all hold passes whatever the code does, so no mutation breaks it.
+# This proof uses contradictory hypotheses and is insensitive to the mutations.
 cp -R "$work/lean" "$work/lean-vacuous"
 printf 'theorem vacuous (w : Nat) (s t : BoundedQueue.State) (hs : BoundedQueue.Invariant w s)\n    (hlt : s.next < s.consumed) (h : BoundedQueue.claim w s = some t) : BoundedQueue.Invariant w t := by\n  simp only [BoundedQueue.Invariant] at hs; omega\n' >> "$work/lean-vacuous/Model/BoundedQueue.lean"
 bash "$scripts/lean-check.sh" "$work/lean-vacuous" --freeze Model/BoundedQueue.lean

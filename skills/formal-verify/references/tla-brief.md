@@ -8,7 +8,7 @@ Write `tla/<Name>.tla`, `tla/<Name>.matrix` and `tla/<Name>.mutations` in the ta
 
 ## Existing model
 
-The row in your task gives the commits since the model was last synced and says whether any of them changed the guarantee on purpose. Change the spec where it no longer describes the code. Change a property only where the row cites that evidence. Add a mutation for each step, branch or wait the update adds, naming the property that must fail on it. Update the header to the code you read.
+The row in your task gives the commits since the model was last synced and says whether any of them changed the guarantee on purpose. Change the spec where it no longer describes the code. Change a property only with that evidence or a specification correction accepted by the main thread under step 3 of the skill. Add a mutation for each step, branch or wait the update adds, naming the property that must fail on it. Update the header to the code you read.
 
 ## Model
 

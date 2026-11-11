@@ -1,7 +1,7 @@
 # Mutations for mutate.py. Each one swaps a piece of BoundedQueue.lean for a
 # plausible bug. The text after `- ` must occur exactly once in the model;
 # `+ ` lines replace it. mutate.py reports the declarations that fail on each,
-# and every public theorem in BoundedQueue.statements must fail on one.
+# and every public theorem's proof in BoundedQueue.statements must fail on one.
 
 mutation count an item as consumed before any claim
 - def init : State := ⟨0, 0⟩
