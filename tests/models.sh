@@ -215,5 +215,6 @@ sed -i.orig 's|state.next < state.consumed + window|state.next <= state.consumed
 rejected bash "$scripts/kani-check.sh" "$work/kani" proofs::claim_keeps_invariant | tee "$work/kani.out"
 grep -q '^FAIL proofs::claim_keeps_invariant' "$work/kani.out"
 grep -q 'Concrete playback unit test' "$work/kani.out"
+bash "$ROOT/tests/rust-mutations.sh"
 
 echo "ok: the examples pass and detect their mutations, and every broken copy is rejected"

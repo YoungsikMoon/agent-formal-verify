@@ -54,6 +54,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from functools import partial
+from os.path import commonpath
 from pathlib import Path
 
 # Importing kani and tlc must not write __pycache__ into the skill directory.
@@ -254,10 +255,13 @@ def check_lean(model, project, toolchain, unmutated_statements, mutation, work):
     return Result(Verdict.DETECTED, "proof/check fails: " + "; ".join(failed), frozenset(failed))
 
 
-def check_rust(model, project, verifier, bounds, mutation, work):
+def check_rust(model, project, verifier, bounds, sources, mutation, work):
     """Run Kani on the named harness in a mutated copy of the crate; the mutation covers that harness."""
-    copy, covers = work / "crate", frozenset({mutation.detects})
-    shutil.copytree(project, copy, ignore=shutil.ignore_patterns("target", ".git"))
+    anchor = Path(commonpath(sources))
+    for source in sources:
+        if not any(parent in sources for parent in source.parents):
+            shutil.copytree(source, work / "source" / source.relative_to(anchor), ignore=shutil.ignore_patterns("target", ".git"))
+    copy, covers = work / "source" / project.relative_to(anchor), frozenset({mutation.detects})
     (copy / model.relative_to(project)).write_text(mutation.source, encoding="utf-8")
     outcome = kani.verify(copy, work, verifier, mutation.detects, bounds[mutation.detects])
     if outcome.verdict is kani.Verdict.PASS:
@@ -339,12 +343,13 @@ def rust_runner(model, mutations):
     with tempfile.TemporaryDirectory(prefix="formal-kani-discover-") as temporary:
         try:
             bounds = kani.discover(project, Path(temporary), verifier)
+            sources = verifier.source_roots(project, Path(temporary))
         except kani.CheckError as error:
             stop(str(error))
     for mutation in mutations:
         if mutation.detects not in bounds:
             stop(f"mutation '{mutation.label}': unknown harness '{mutation.detects}'")
-    return set(bounds), partial(check_rust, model, project, verifier, bounds)
+    return set(bounds), partial(check_rust, model, project, verifier, bounds, sources)
 
 
 # Each runner checks the names the mutations detect, then returns the names they must cover and a check for one mutation.

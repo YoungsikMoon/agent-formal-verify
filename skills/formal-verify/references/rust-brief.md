@@ -66,8 +66,9 @@ printed installation remedy before making any claim about the code. A compilatio
 error, missing harness or incomplete verifier report fails.
 
 Put `<Name>.mutations` beside the assigned `<Name>.rs`. Use
-`detects <fully-qualified-harness>` for each mutation. The mutation runner copies
-the whole crate to temporary storage and checks the named harness. A compiler
+`detects <fully-qualified-harness>` for each mutation. The mutation runner uses
+the bundled Cargo to find the crate's workspace and local dependencies, copies
+them to temporary storage with their relative paths intact, and checks the named harness. A compiler
 error never counts as detection. Every discovered harness needs a mutation.
 
 For each fix commit in your row whose fixed code is in the file beside the

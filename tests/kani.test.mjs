@@ -27,9 +27,11 @@ function kaniBundle(config = {}) {
     writeFileSync(file, "#!/bin/sh\nexit 0\n");
     chmodSync(file, 0o755);
   }
-  const driver = join(bundle(dir), "bin/kani-driver");
-  writeFileSync(driver, `#!${python}\n${DRIVER}`);
-  chmodSync(driver, 0o755);
+  for (const executable of ["bin/kani-driver", "toolchain/bin/cargo"]) {
+    const path = join(bundle(dir), executable);
+    writeFileSync(path, `#!${python}\n${DRIVER}`);
+    chmodSync(path, 0o755);
+  }
   writeJson(join(dir, "driver.json"), { version: KANI, harnesses: {}, ...config });
   return dir;
 }
@@ -185,6 +187,72 @@ for (const outcome of ["success", "failure"]) {
     assert.equal(result.status, outcome === "success" ? 1 : 0, result.stdout + result.stderr);
     includes(result.stdout, `${outcome === "success" ? "MISSED" : "DETECTED"} guard`);
     assert.equal(readFileSync(join(dir, "src/lib.rs"), "utf8"), "old\n");
+  });
+}
+
+for (const workspace of [false, true]) {
+  test(`Rust mutations preserve ${workspace ? "workspace inheritance and transitive" : "sibling"} path dependencies`, () => {
+    const { dir, name } = kaniFixture("failure");
+    const root = join(dir, "project");
+    const crate = join(root, "proof");
+    const shared = join(dir, "shared");
+    const files = {
+      "proof/Cargo.toml": '[package]\nname="proof"\nversion="0.1.0"\n[dependencies]\nlogic={path="../logic"}\n',
+      "logic/Cargo.toml": '[package]\nname="logic"\nversion="0.1.0"\n[dependencies]\nshared={path="../../shared"}\n',
+      "logic/src/lib.rs": "pub fn step(n: u8) -> u8 { shared::step(n) }\n",
+    };
+    if (workspace) {
+      files["Cargo.toml"] = '[workspace]\nmembers=["proof","logic"]\n[workspace.package]\nedition="2021"\n';
+      files["Cargo.lock"] = "# workspace lock\n";
+      files["proof/Cargo.toml"] += "[package.edition]\nworkspace=true\n";
+    }
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(join(root, path, ".."), { recursive: true });
+      writeFileSync(join(root, path), text);
+    }
+    mkdirSync(join(shared, "src"), { recursive: true });
+    writeFileSync(join(shared, "Cargo.toml"), '[package]\nname="shared"\nversion="0.1.0"\n');
+    writeFileSync(join(shared, "src/lib.rs"), "pub fn step(n: u8) -> u8 { n + 1 }\n");
+    const mutations = rustMutation(crate, name);
+    writeJson(join(dir, "driver.json"), {
+      version: KANI, harnesses: { [name]: 3 },
+      cargoMetadata: {
+        version: 1, workspace_root: workspace ? root : crate,
+        packages: [
+          { source: null, manifest_path: join(crate, "Cargo.toml"), dependencies: [{ path: join(root, "logic") }] },
+          { source: null, manifest_path: join(root, "logic/Cargo.toml"), dependencies: [{ path: shared }] },
+          { source: null, manifest_path: join(shared, "Cargo.toml"), dependencies: [] },
+        ],
+      },
+      requiredCrateFiles: {
+        "src/lib.rs": "new\n",
+        "../logic/src/lib.rs": files["logic/src/lib.rs"],
+        "../../shared/src/lib.rs": "pub fn step(n: u8) -> u8 { n + 1 }\n",
+        ...(workspace ? { "../Cargo.toml": files["Cargo.toml"], "../Cargo.lock": files["Cargo.lock"] } : {}),
+      },
+    });
+    const result = runKani(dir, "mutate.py", [mutations]);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    includes(result.stdout, "DETECTED guard");
+    assert.equal(readFileSync(join(crate, "src/lib.rs"), "utf8"), "old\n");
+    for (const [path, text] of Object.entries(files)) assert.equal(readFileSync(join(root, path), "utf8"), text);
+  });
+}
+
+for (const [label, config, error] of [
+  ["failed", { cargoMetadataStatus: 1 }, "Cargo metadata failed"],
+  ["malformed", { cargoMetadata: [] }, "malformed Cargo metadata"],
+  ["unsupported", { cargoMetadata: { version: 2 } }, "unsupported Cargo metadata version"],
+  ["relative", { cargoMetadata: { version: 1, workspace_root: "relative", packages: [] } }, "Cargo metadata returned a relative source path"],
+]) {
+  test(`Rust mutations reject ${label} Cargo metadata before checking a mutation`, () => {
+    const { dir, name } = kaniFixture("failure", config);
+    const result = runKani(dir, "mutate.py", [rustMutation(dir, name)]);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    includes(result.stdout, `FAIL ${error}`);
+    excludes(result.stdout, "DETECTED");
+    excludes(result.stderr, "Traceback");
+    excludes(calls(dir), "--export-json");
   });
 }
 
