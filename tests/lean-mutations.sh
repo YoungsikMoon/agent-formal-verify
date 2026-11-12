@@ -131,13 +131,18 @@ def step (n : Nat) : Nat := n + 1
 theorem property (n : Nat) : n < step n := by simp [step]
 example : step 0 = 1 := by rfl
 #guard step 0 == 1
+section
+variable (k : Nat)
+example : k < step k := by simp [step]
+end
+example (n : Nat) [NeZero n] : 0 < step n := by simp [step]
 end Step
 EOF
 bash "$scripts/lean-check.sh" "$work" --freeze Model/Step.lean
 printf 'mutation no increment\n- n + 1\n+ n\n+ -- extra line\n' > "$work/Model/Step.mutations"
 python3 "$scripts/mutate.py" "$work/Model/Step.mutations" > "$work/result"
 cat "$work/result"
-grep -Fqx "DETECTED no increment: proof/check fails: theorem Step.property; example at $work/Model/Step.lean:4; #guard at $work/Model/Step.lean:5" "$work/result"
+grep -Fqx "DETECTED no increment: proof/check fails: theorem Step.property; example at $work/Model/Step.lean:4; #guard at $work/Model/Step.lean:5; example at $work/Model/Step.lean:8; example at $work/Model/Step.lean:10" "$work/result"
 
 # A syntax error in a definition must never count as a detected bug.
 printf 'mutation invalid definition\n- n + 1\n+ n +\n' > "$work/Model/Step.mutations"
@@ -167,5 +172,20 @@ for theorem in 'property (n : Nat) : n < step n := by simp [step]' \
   cat "$work/result"
   grep -q "^FAIL mutation 'rename step' did not reach a verdict:" "$work/result"
   grep -q "^theorem Step.${theorem%% *}: the mutation changes its statement" "$work/result"
+done
+
+# The same holds for an example or #guard, which has no declaration to compare.
+for check in 'example : step 0 = 1 := by rfl' \
+  'example (f : Nat → Nat) (h : f = step) : f 0 = 1 := by subst h; rfl' \
+  '#guard step 0 == 1'; do
+  printf 'namespace Step\ndef step (n : Nat) : Nat := n + 1\n%s\nend Step\n' "$check" > "$work/Model/Step.lean"
+  bash "$scripts/lean-check.sh" "$work" --freeze Model/Step.lean
+  if python3 "$scripts/mutate.py" "$work/Model/Step.mutations" > "$work/result"; then
+    echo "FAIL changed statement of '$check' counted as a detected mutation"
+    exit 1
+  fi
+  cat "$work/result"
+  grep -q "^FAIL mutation 'rename step' did not reach a verdict:" "$work/result"
+  grep -Fq "${check%% *} at $work/Model/Step.lean:3: the mutation changes its statement" "$work/result"
 done
 echo 'ok: qualified coverage and proof-sensitivity reporting checked with real Lean'

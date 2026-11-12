@@ -119,6 +119,9 @@ const leanNote = "NOTE Lean detections mean existing proofs fail, not that theor
 const leanDecl = (name, line, { private: hidden = false, theorem = true, type = "Prop" } = {}) =>
   ({ name, private: hidden, theorem, type, start: [line, 0], end: [line + 1, 0] });
 
+const leanCommand = (property, line, statement = "Prop") =>
+  ({ property, statement, start: [line, 0], end: [line + 1, 0] });
+
 const leanError = (line, extra = {}) => ({ pos: { line, column: 2 }, data: "unsolved goals", ...extra });
 
 const leanAnalysis = (declarations, errors = [], commands = []) => ({ declarations, errors, commands });
@@ -181,12 +184,11 @@ test("Lean mutation coverage preserves fully qualified identities and private ex
 
 test("a failing Lean guard or example cannot cover an unrelated theorem", () => {
   const decls = [leanDecl("Step.vacuous", 2)];
-  const commands = [{ property: "#guard", start: [3, 0], end: [4, 0] },
-    { property: "example", start: [4, 0], end: [5, 0] }];
+  const commands = [leanCommand("#guard", 3), leanCommand("example", 4)];
   const model = "def step (n : Nat) : Nat := n + 1\n"
     + "theorem vacuous : True := trivial\n#guard step 0 == 1\nexample : step 0 = 1 := rfl\n";
   const result = leanMutations(model, ["Step.vacuous"],
-    leanAnalysis(decls), noStep,
+    leanAnalysis(decls, [], commands), noStep,
     [{ text: ":= n\n", analysis: leanAnalysis(decls, [leanError(3), leanError(4)], commands) }]);
   assert.equal(result.stdout, `DETECTED no step: proof/check fails: #guard at ${result.modelPath}:3; example at ${result.modelPath}:4\n`
     + "UNCOVERED theorem Step.vacuous\n" + leanNote
@@ -219,21 +221,21 @@ test("Lean command locations refer to the original model after lines are inserte
     ["n + 1\n-- separator", "n", 2]]) {
     const model = `def step (n : Nat) : Nat := ${original}\n#guard step 0 == 1\n`;
     const originalLine = model.split("\n").findIndex((line) => line.startsWith("#guard")) + 1;
-    const commands = [{ property: "#guard", start: [mutatedLine, 0], end: [mutatedLine + 1, 0] }];
     const edits = original.split("\n").map((line) => "- " + line)
       .concat(replacement.split("\n").map((line) => "+ " + line)).join("\n");
-    const result = leanMutations(model, [], leanAnalysis([]), `mutation change lines\n${edits}\n`,
-      [{ text: ":= n\n", analysis: leanAnalysis([], [leanError(mutatedLine)], commands) }]);
+    const result = leanMutations(model, [], leanAnalysis([], [], [leanCommand("#guard", originalLine)]),
+      `mutation change lines\n${edits}\n`,
+      [{ text: ":= n\n", analysis: leanAnalysis([], [leanError(mutatedLine)], [leanCommand("#guard", mutatedLine)]) }]);
     assert.equal(result.status, 0, result.stdout);
     includes(result.stdout, `#guard at ${result.modelPath}:${originalLine}\n`);
   }
 });
 
 test("Lean locations label commands created inside a mutation replacement", () => {
-  const commands = [{ property: "#guard", start: [2, 0], end: [3, 0] }];
-  const result = leanMutations("def step (n : Nat) : Nat := n + 1\n", [], leanAnalysis([]),
-    "mutation insert guard\n- n + 1\n+ n\n+ #guard step 0 == 1\n",
-    [{ text: "#guard", analysis: leanAnalysis([], [leanError(2)], commands) }]);
+  const commands = [leanCommand("#guard", 2)];
+  const result = leanMutations("def step (n : Nat) : Nat := n + 1\n#guard step 0 == 1\n", [],
+    leanAnalysis([], [], commands), "mutation restate guard\n- n + 1\n- #guard step 0 == 1\n+ n\n+ #guard step 0 == 1\n",
+    [{ text: ":= n\n", analysis: leanAnalysis([], [leanError(2)], commands) }]);
   assert.equal(result.status, 0, result.stdout);
   includes(result.stdout, `#guard at ${result.modelPath}:1 (mutation replacement)\n`);
 });
@@ -265,6 +267,20 @@ test("a Lean theorem whose statement the mutation changes or adds cannot count a
       [{ text: ":= n\n", analysis: leanAnalysis([decl], [leanError(2)]) }]);
     assert.equal(result.status, 1);
     includes(result.stdout, `FAIL mutation 'no step' did not reach a verdict:\ntheorem ${decl.name}: the mutation changes its statement`);
+    excludes(result.stdout, "DETECTED");
+  }
+});
+
+test("a Lean example or guard whose statement the mutation changes, adds or hides cannot count as a failing check", () => {
+  const model = "def step (n : Nat) : Nat := n + 1\nexample : step 0 = 1 := rfl\n";
+  for (const [unmutated, mutated] of [[[leanCommand("example", 2)], leanCommand("example", 2, "sorry")],
+    [[], leanCommand("#guard", 2)],
+    [[leanCommand("example", 2, null)], leanCommand("example", 2, null)]]) {
+    const result = leanMutations(model, [], leanAnalysis([], [], unmutated), noStep,
+      [{ text: ":= n\n", analysis: leanAnalysis([], [leanError(2)], [mutated]) }]);
+    assert.equal(result.status, 1);
+    includes(result.stdout, `FAIL mutation 'no step' did not reach a verdict:\n${mutated.property} at ${result.modelPath}:2: `
+      + "the mutation changes its statement");
     excludes(result.stdout, "DETECTED");
   }
 });
