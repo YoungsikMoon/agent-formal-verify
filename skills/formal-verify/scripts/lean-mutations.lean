@@ -15,6 +15,27 @@ private partial def unnamed (e : Expr) : Expr := e.replace fun
   | .lam _ t b bi => some (.lam .anonymous (unnamed t) (unnamed b) bi)
   | _ => none
 
+-- An example's statement is the type of the local Lean binds for its header, and
+-- a guard's is its term. Closing over the local context removes the ids of
+-- section variables, which shift when an earlier command changes.
+private def statement (trees : PersistentArray InfoTree) (check : Syntax) : IO Json := do
+  let isExample := check.isOfKind ``Parser.Command.example
+  let target := if isExample then check else check[1]
+  let wanted (ti : TermInfo) := ti.stx.getPos? == target.getPos? &&
+    (if isExample then ti.stx.isOfKind ``Parser.Command.declId && ti.expr.isFVar
+     else ti.stx.getTailPos? == target.getTailPos?)
+  let found := trees.foldl (init := none) fun found tree => found <|> tree.foldInfo (init := none)
+    fun ctx info found => found <|> match info with
+      | .ofTermInfo ti => if wanted ti then some (ctx, ti) else none
+      | _ => none
+  let some (ctx, ti) := found | return Json.null
+  ctx.runMetaM ti.lctx do
+    let e ← instantiateMVars (← if isExample then Meta.inferType ti.expr else pure ti.expr)
+    let xs := ti.lctx.foldl (init := #[]) fun xs decl =>
+      if decl.isImplementationDetail then xs else xs.push decl.toExpr
+    let e ← Meta.mkLambdaFVars xs e
+    return if e.hasFVar || e.hasMVar then Json.null else toJson (reprStr (unnamed e))
+
 private def declarations (instances : Array (Nat × Nat)) : CommandElabM (Array Json) := do
   let env ← getEnv
   let fileMap ← getFileMap
@@ -61,6 +82,7 @@ unsafe def main (args : List String) : IO UInt32 := do
     let propertyEnd := (propertyStx.bind Syntax.getTailPos?).getD tail
     commands := commands.push <| Json.mkObj [
       ("property", toJson property),
+      ("statement", toJson (← propertyStx.mapM (statement state.commandState.infoState.trees))),
       ("start", point (inputCtx.fileMap.toPosition propertyStart)),
       ("end", point (inputCtx.fileMap.toPosition propertyEnd))]
   let (decls, _) ← (Frontend.runCommandElabM (declarations instances)).run { inputCtx } |>.run state
