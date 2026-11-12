@@ -9,6 +9,13 @@ base = pathlib.Path(trace).parent
 config = json.loads((base / "driver.json").read_text())
 with open(trace, "a") as log:
     log.write(" ".join(args) + "\n")
+if args[0] == "metadata":
+    manifest = pathlib.Path(args[args.index("--manifest-path") + 1])
+    print(json.dumps(config.get("cargoMetadata", {
+        "version": 1, "workspace_root": str(manifest.parent),
+        "packages": [{"source": None, "manifest_path": str(manifest), "dependencies": []}],
+    })))
+    sys.exit(config.get("cargoMetadataStatus", 0))
 kani_home = os.environ.get("KANI_HOME")
 bundle_home = pathlib.Path(__file__).resolve().parents[2]
 if config.get("expectResolvedHome") and kani_home != str(bundle_home):
@@ -34,6 +41,11 @@ elif config.get("compileError"):
     print("error: compilation failed")
     sys.exit(1)
 else:
+    crate = pathlib.Path(args[args.index("--manifest-path") + 1]).parent
+    for relative, contents in config.get("requiredCrateFiles", {}).items():
+        path = crate / relative
+        if not path.is_file() or path.read_text() != contents:
+            sys.exit(f"missing or changed crate input: {relative}")
     report = json.loads((base / "report.json").read_text())
     pathlib.Path(args[args.index("--export-json") + 1]).write_text(json.dumps(report))
     print("Concrete playback unit test fixture")

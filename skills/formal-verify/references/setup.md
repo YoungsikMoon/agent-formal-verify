@@ -43,7 +43,7 @@ Kani supports Linux and macOS on x86_64 and aarch64. See the [pinned installatio
 
 The Rust checker discovers proof harnesses and checks each selected harness separately. It reports the unwind bound and check count, rejects an insufficient bound and any cover condition that was not satisfied, and prints a concrete playback test for a failed assertion when Kani can produce one. Larger inputs and loops remain outside the reported bounds. Crate builds may obtain dependencies declared in Cargo; the template has none.
 
-The mutation runner reads `Name.mutations` beside `Name.rs`, copies the whole crate to a temporary directory, and checks the harness named by `detects`. It leaves the source crate unchanged. Each harness must have a mutation that its property detects.
+The mutation runner reads `Name.mutations` beside `Name.rs`, uses the bundled Cargo to find the crate's workspace and local dependencies, and copies them to a temporary directory with their relative paths intact. It checks the harness named by `detects` and leaves the source crate unchanged. Each harness must have a mutation that its property detects.
 
 ## Lean 4
 

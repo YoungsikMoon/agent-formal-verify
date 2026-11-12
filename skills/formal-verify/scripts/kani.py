@@ -66,6 +66,7 @@ class Kani:
         if any(home.glob("*.tar.gz")):
             raise Unavailable(f"incomplete Kani setup at {home}; finish cargo kani setup before checking")
         self.driver = bundle / "bin/kani-driver"
+        self.cargo = bundle / "toolchain/bin/cargo"
         self.env = os.environ | {
             "KANI_HOME": str(home),
             "RUSTUP_TOOLCHAIN": str((bundle / "toolchain").resolve()),
@@ -94,6 +95,42 @@ class Kani:
                 cwd=cwd, capture_output=True, text=True, check=False)
         except OSError as error:
             raise CheckError(f"cannot execute Kani: {error}") from error
+
+    def source_roots(self, crate, work):
+        """Find each local package's workspace, including transitive and optional path dependencies."""
+        pending, visited, roots = {crate}, set(), set()
+        while pending:
+            directory = pending.pop()
+            if directory in visited:
+                continue
+            visited.add(directory)
+            try:
+                done = subprocess.run(
+                    [str(self.cargo), "metadata", *(["--no-deps"] if directory != crate else []),
+                     "--format-version", "1", "--manifest-path", str(directory / "Cargo.toml")],
+                    cwd=work, env=self.env, capture_output=True, text=True, check=False)
+            except OSError as error:
+                raise CheckError(f"cannot read Cargo metadata: {error}") from error
+            if done.returncode:
+                raise CheckError(f"Cargo metadata failed for {directory}:\n{done.stdout}{done.stderr}")
+            try:
+                report = json.loads(done.stdout)
+                if report["version"] != 1:
+                    raise CheckError("unsupported Cargo metadata version")
+                paths = [Path(report["workspace_root"]), directory]
+                for package in report["packages"]:
+                    if package["source"] is not None:
+                        continue
+                    paths.append(Path(package["manifest_path"]).parent)
+                    paths.extend(Path(dependency["path"]) for dependency in package["dependencies"] if "path" in dependency)
+                if not all(path.is_absolute() for path in paths):
+                    raise CheckError("Cargo metadata returned a relative source path")
+                roots.add(paths[0].resolve())
+                roots.add(directory)
+                pending.update(path.resolve() for path in paths[2:])
+            except (ValueError, KeyError, TypeError) as error:
+                raise CheckError(f"malformed Cargo metadata: {error}") from error
+        return roots
 
 
 def invoke(crate, work, kani, *arguments):
