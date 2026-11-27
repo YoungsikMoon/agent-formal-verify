@@ -577,6 +577,10 @@ test("each harness that Kani compiles from a recorded file must be on a route th
   const switchedOff = baseline(missing.dir, "compare", missing.record);
   assert.equal(switchedOff.status, 0, switchedOff.stdout);
   assert.deepEqual(lines(switchedOff), [`NOT CHECKED ${missing.proofs}`, notChecked, "  not compiled now harness a", "SUMMARY 0 unchanged, 0 changed, 1 not checked"]);
+  // A removed harness is a change of its own and is not named again.
+  writeFileSync(missing.proofs, "fn a() {}\n");
+  assert.deepEqual(lines(baseline(missing.dir, "compare", missing.record)), [`CHANGED ${missing.proofs}`, "  removed harness a", notChecked, "SUMMARY 0 unchanged, 1 changed"]);
+  writeFileSync(missing.proofs, files["src/proofs.rs"]);
   compiles(missing.dir, "src/proofs.rs", ["readable::a"]);
   // A changed text part, or a harness that Kani compiles on a route that the record does not read, is still CHANGED.
   writeFileSync(missing.proofs, "#[kani::proof]\nfn a() { kani::assume(true); }\n");
