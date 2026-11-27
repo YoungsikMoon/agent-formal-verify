@@ -868,28 +868,39 @@ function runTlcRunner(dir, javaBody, matrixLines, extraEnv = {}, keepResults = t
   return JSON.parse(result.stdout);
 }
 
+// A fake TLC whose reach checks find a witness and whose other runs violate an invariant.
+const witnessOrViolation = [
+  'for last; do :; done',
+  'cfg="$(dirname "$last")/MC.cfg"',
+  'if grep -q "^INVARIANT Reach" "$cfg"; then',
+  '  name=$(sed -n "s/^INVARIANT //p" "$cfg")',
+  `  sed "s/ReachNegated/$name/g" ${JSON.stringify(join(logs, "tlc-reach.log"))}`,
+  'else',
+  `  cat ${JSON.stringify(join(logs, "tlc-invariant.log"))}`,
+  'fi',
+  'exit 12',
+].join("\n");
+
 test("tlc.Runner without keep_results keeps no results, parses no trace and does not load the report module", () => {
   const dir = fixture();
   writeFileSync(join(dir, "One.tla"), "---- MODULE One ----\n====\n");
-  const java = [`cat ${JSON.stringify(join(logs, "tlc-invariant.log"))}`, "exit 12"].join("\n");
-  const matrix = ["spec One.tla", "check INVARIANTS Small", "run bad | N=2"];
-  const kept = runTlcRunner(dir, java, matrix);
-  const dropped = runTlcRunner(dir, java, matrix, {}, false);
+  const matrix = ["spec One.tla", "check INVARIANTS Small", "reach Full | bad", "run bad | N=2"];
+  const kept = runTlcRunner(dir, witnessOrViolation, matrix);
+  const dropped = runTlcRunner(dir, witnessOrViolation, matrix, {}, false);
   assert.equal(dropped.results, null);
   assert.equal(dropped.report_loaded, false);
   assert.equal(dropped.failed, true);
   assert.deepEqual(dropped.rendered, kept.rendered);
   includes(dropped.rendered.join("\n"), "--- state 1: Initial predicate");
-  assert.equal(kept.results.length, 1);
-  assert.equal(kept.results[0].trace.steps.length, 4);
+  assert.deepEqual(kept.results.map((result) => [result.outcome, result.trace.steps.length]), [["fail", 4], ["witness", 2]]);
 });
 
 test("tlc.main without TLC_HTML_REPORT parses no trace and does not load the report module", () => {
   const dir = fixture();
   writeFileSync(join(dir, "One.tla"), "---- MODULE One ----\n====\n");
-  writeFileSync(join(dir, "One.matrix"), "spec One.tla\ncheck INVARIANTS Small\nrun bad | N=2\n");
+  writeFileSync(join(dir, "One.matrix"), "spec One.tla\ncheck INVARIANTS Small\nreach Full | bad\nrun bad | N=2\n");
   writeFileSync(join(dir, "tools.jar"), "user supplied");
-  const java = fakeTlc(dir, `cat ${JSON.stringify(join(logs, "tlc-invariant.log"))}\nexit 12`);
+  const java = fakeTlc(dir, witnessOrViolation);
   const script = [
     "import sys",
     `sys.path.insert(0, ${JSON.stringify(scripts)})`,
@@ -908,6 +919,7 @@ test("tlc.main without TLC_HTML_REPORT parses no trace and does not load the rep
   });
   assert.equal(result.status, 0, result.stderr);
   includes(result.stdout, "FAIL One bad: Error: Invariant");
+  includes(result.stdout, "PASS One reach Full bad: shortest trace 2 states (1 transitions)");
   includes(result.stdout, "--- state 1: Initial predicate");
   assert.match(result.stdout, /\nSTATUS 1 False\n$/);
 });
