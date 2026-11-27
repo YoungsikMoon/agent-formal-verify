@@ -153,7 +153,7 @@ def project_sources(project):
     found = []
     for top, directories, names in os.walk(project):
         found += [os.path.join(top, name) for name in directories + names
-                  if name.endswith(".lean") and name != "lakefile.lean"]
+                  if name.endswith(".lean") and (top != project or name != "lakefile.lean")]
         if top == project and ".lake" in directories:
             directories.remove(".lake")
     return sorted(found)
