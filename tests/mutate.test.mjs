@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Michael Denyer
 // SPDX-License-Identifier: GPL-3.0-only
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -9,6 +9,24 @@ import { afterEach, test } from "node:test";
 import { command, elanListsPin, excludes, fakeTlc, fixture, includes, leanPin, logs, removeFixtures, run, scripts, writeLeanProject } from "./helpers.mjs";
 
 afterEach(removeFixtures);
+
+test("planning many mutations of one model keeps only their validated edits", () => {
+  const program = `
+import sys, tracemalloc
+sys.path.insert(0, sys.argv[1])
+from mutate import LANGUAGES, make_mutation
+original = "x" * (256 * 1024) + "old"
+tracemalloc.start()
+edits = [make_mutation(str(i), [("-", "old"), ("+", str(i))], "Model.lean", original, LANGUAGES[".lean"])
+         for i in range(64)]
+_, peak = tracemalloc.get_traced_memory()
+assert peak < len(original), peak
+for i, edit in enumerate(edits):
+    assert edit.apply() == original[:-3] + str(i)
+`;
+  const result = spawnSync("python3", ["-B", "-c", program, scripts], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+});
 
 function tlaMutations(checks, mutations, log = "tlc-invariant.log", specPath = "One.tla", matrix) {
   const dir = fixture();

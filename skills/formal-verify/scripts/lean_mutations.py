@@ -89,13 +89,13 @@ def _command_sites(source, commands, edit_start, edit_end):
         yield (cmd["property"], site), cmd, first
 
 
-def _compare_commands(model, before, mutation, after):
-    start = mutation.original.index(mutation.old)
+def _compare_commands(model, before, mutation, source, after):
+    start = mutation.start
     end = start + len(mutation.new)
     originals = {}
     for site, cmd, _ in _command_sites(mutation.original, before, start, start + len(mutation.old)):
         originals.setdefault(site, []).append(cmd["statement"])
-    commands = list(_command_sites(mutation.source, after, start, end))
+    commands = list(_command_sites(source, after, start, end))
     counts = Counter(site for site, _, _ in commands)
     line_shift = mutation.old.count("\n") - mutation.new.count("\n")
     edit_line = mutation.original.count("\n", 0, start) + 1
@@ -139,10 +139,9 @@ class OriginalChecks:
         self._theorems = {(decl["name"], decl["type"]) for decl in theorems}
         self._commands = original["commands"]
 
-    def _theorem_checks(self, declarations, mutation):
-        start = mutation.original.index(mutation.old)
-        edit_start = _position(mutation.source, start)
-        edit_end = _position(mutation.source, start + len(mutation.new))
+    def _theorem_checks(self, declarations, mutation, source):
+        edit_start = _position(source, mutation.start)
+        edit_end = _position(source, mutation.start + len(mutation.new))
         theorems = [decl for decl in declarations if decl["theorem"]]
         names = {decl["name"] for decl in theorems}
         for decl in theorems:
@@ -156,12 +155,12 @@ class OriginalChecks:
                 problem = ""
             yield _Check(decl["start"], decl["end"], "theorem " + name, problem, _is_witness(name, names))
 
-    def broken_checks(self, mutation, copy, analysis):
+    def broken_checks(self, mutation, source, copy, analysis):
         """Return the original checks that fail, or raise ValueError if any error cannot be attributed."""
         if not analysis["errors"]:
             return []
-        theorems = list(self._theorem_checks(analysis["declarations"], mutation))
-        commands = list(_compare_commands(self._path, self._commands, mutation, analysis["commands"]))
+        theorems = list(self._theorem_checks(analysis["declarations"], mutation, source))
+        commands = list(_compare_commands(self._path, self._commands, mutation, source, analysis["commands"]))
         failed = []
         for error in analysis["errors"]:
             position = [error["pos"]["line"], error["pos"]["column"]]
@@ -189,7 +188,8 @@ def prepare(model, project):
 
     def check(mutation, work):
         copy = work / model.name
-        copy.write_text(mutation.source, encoding="utf-8")
-        return original.broken_checks(mutation, copy, _analyze(copy, project, pin))
+        source = mutation.apply()
+        copy.write_text(source, encoding="utf-8")
+        return original.broken_checks(mutation, source, copy, _analyze(copy, project, pin))
 
     return original.targets, check
