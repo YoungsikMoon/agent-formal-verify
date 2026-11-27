@@ -32,7 +32,8 @@ Usage:
                                                      compare old's entry with new from now on
 
 Compare prints UNCHANGED or CHANGED per file, indented lines for each item that
-changed, and a SUMMARY line. Move prints MOVED; it reads only the record, never
+changed, and a SUMMARY line. It prints NOT CHECKED for an unchanged Kani file in a
+Cargo package that record could not check against Kani. Move prints MOVED; it reads only the record, never
 the new file, and with --module renames the recorded Kani owners under module
 OLD to sit under NEW. Exit codes: 0 unchanged, 1 changed or a record or model
 file that fails to parse, 2 usage error.
@@ -281,7 +282,7 @@ class LeanKind:
         return model_entry(self.name, lean_surface(path)), None
 
     def changes(self, entry, path):
-        return differences(entry["surface"], lean_surface(path), ())
+        return differences(entry["surface"], lean_surface(path), ()), []
 
     def valid(self, entry):
         return True
@@ -305,7 +306,7 @@ class TlaKind:
             lines.append("  previous baseline did not track imported modules; review and record this matrix again")
         if "TLA+ layout version" not in old:
             lines.append("  previous baseline did not preserve TLA+ layout; review and record this matrix again")
-        return lines + differences(old, new, ())
+        return lines + differences(old, new, ()), []
 
     def valid(self, entry):
         return True
@@ -340,15 +341,16 @@ class KaniKind:
     def changes(self, entry, path):
         surface = kani_surface(path, self.reader)
         lines = differences(entry["surface"], surface, ("assume", "stub"))
+        # Without Kani's list from record, compare cannot see a harness switched off on a route the record does not read.
+        unchecked = ("  not checked against Kani at record, so compare cannot see a harness that "
+                     "stopped compiling on a route that the record does not read")
         try:
             problems, names = compiled_problems(path, surface, self.reader, entry.get("compiled"))
-            lines += problems
-            if names is not None and "compiled" not in entry:
-                lines.append("  not checked against Kani at record, so compare cannot see a harness that "
-                             "stopped compiling on a route that the record does not read")
         except ValueError as error:
-            lines.append(f"  FAIL {error}")
-        return lines
+            if "compiled" in entry:
+                return [*lines, f"  FAIL {error}"], []
+            return lines, [unchecked, f"  {error}"]
+        return lines + problems, [unchecked] if names is not None and "compiled" not in entry else []
 
     def valid(self, entry):
         compiled = entry.get("compiled", [])
@@ -489,20 +491,22 @@ def compare(record_path):
         return 2
     kinds = model_kinds()
     models = read_record(record_path, kinds)
-    changed = 0
+    changed = unchecked = 0
     for model, entry in models.items():
         try:
             if not Path(model).is_file():
-                lines = ["  file is missing"]
+                lines, notes = ["  file is missing"], []
             else:
-                lines = kinds[entry["kind"]].changes(entry, Path(model))
+                lines, notes = kinds[entry["kind"]].changes(entry, Path(model))
         except (OSError, ValueError, KeyError, TypeError) as error:
-            lines = [f"  FAIL {error}"]
+            lines, notes = [f"  FAIL {error}"], []
         changed += bool(lines)
-        print(f"{'CHANGED' if lines else 'UNCHANGED'} {model}")
-        if lines:
-            print("\n".join(lines))
-    print(f"SUMMARY {len(models) - changed} unchanged, {changed} changed")
+        unchecked += bool(notes) and not lines
+        print(f"{'CHANGED' if lines else 'NOT CHECKED' if notes else 'UNCHANGED'} {model}")
+        if lines or notes:
+            print("\n".join(lines + notes))
+    not_checked = f", {unchecked} not checked" if unchecked else ""
+    print(f"SUMMARY {len(models) - changed - unchecked} unchanged, {changed} changed{not_checked}")
     return int(changed > 0)
 
 
