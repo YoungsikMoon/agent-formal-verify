@@ -39,10 +39,12 @@ OLD to sit under NEW. Exit codes: 0 unchanged, 1 changed or a record or model
 file that fails to parse, 2 usage error.
 """
 import argparse
+import fcntl
 import hashlib
 import json
 import re
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -428,8 +430,16 @@ def read_record(path, kinds):
     return models
 
 
-def write_record(path, models):
+@contextmanager
+def locked_models(path, kinds):
+    """Lock a stable sibling across the read and replacement of a record."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    with path.with_name(f".{path.name}.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield read_record(path, kinds) if path.exists() else {}
+
+
+def write_record(path, models):
     runner.atomic_write(path, json.dumps({"format": FORMAT, "models": models}, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
 
 
@@ -440,13 +450,14 @@ def record(record_path, files):
         if file.suffix not in by_suffix:
             print(f"usage: {file} has no model surface; expected one of {', '.join(by_suffix)}")
             return 2
-    models = read_record(record_path, kinds) if record_path.exists() else {}
     updates, notes = {}, {}
     for file in files:
         model = str(file.resolve())
         updates[model], note = by_suffix[file.suffix].entry(file.resolve())
         if note:
             notes[model] = note
+    with locked_models(record_path, kinds) as models:
+        write_record(record_path, {**models, **updates})
     for model, entry in updates.items():
         print(f"RECORDED {model} {entry['digest']}")
         previous = models.get(model, {}).get("digest")
@@ -454,7 +465,6 @@ def record(record_path, files):
             print(f"  previous {previous}")
         if model in notes:
             print(notes[model])
-    write_record(record_path, {**models, **updates})
     return 0
 
 
@@ -477,21 +487,21 @@ def renamed(surface, old_module, new_module):
 
 def move(record_path, old_file, new_file, module):
     kinds = model_kinds()
-    models = read_record(record_path, kinds) if record_path.is_file() else {}
     old, new = str(old_file.resolve()), str(new_file.resolve())
-    if old not in models:
-        print(f"usage: {old} has no record entry; record it before the move")
-        return 2
-    kind = kinds[models[old]["kind"]]
-    if new_file.suffix != kind.suffix:
-        print(f"usage: {new} is not a {kind.name} model file")
-        return 2
-    if module and not kind.renames:
-        print("usage: --module applies only to a Kani harness file")
-        return 2
-    entry = models.pop(old)
-    models[new] = kind.moved(entry, module, new, models.get(new))
-    write_record(record_path, models)
+    with locked_models(record_path, kinds) as models:
+        if old not in models:
+            print(f"usage: {old} has no record entry; record it before the move")
+            return 2
+        kind = kinds[models[old]["kind"]]
+        if new_file.suffix != kind.suffix:
+            print(f"usage: {new} is not a {kind.name} model file")
+            return 2
+        if module and not kind.renames:
+            print("usage: --module applies only to a Kani harness file")
+            return 2
+        entry = models.pop(old)
+        models[new] = kind.moved(entry, module, new, models.get(new))
+        write_record(record_path, models)
     print(f"MOVED {old} -> {new}")
     return 0
 
