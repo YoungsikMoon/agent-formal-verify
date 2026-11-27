@@ -341,7 +341,6 @@ class KaniKind:
     def changes(self, entry, path):
         surface = kani_surface(path, self.reader)
         lines = differences(entry["surface"], surface, ("assume", "stub"))
-        # Without Kani's list from record, compare cannot see a harness switched off on a route the record does not read.
         unchecked = ("  not checked against Kani at record, so compare cannot see a harness that "
                      "stopped compiling on a route that the record does not read")
         try:
@@ -350,7 +349,9 @@ class KaniKind:
             if "compiled" in entry:
                 return [*lines, f"  FAIL {error}"], []
             return lines, [unchecked, f"  {error}"]
-        return lines + problems, [unchecked] if names is not None and "compiled" not in entry else []
+        if names is None or "compiled" in entry:
+            return lines + problems, []
+        return lines + problems, [unchecked]
 
     def valid(self, entry):
         compiled = entry.get("compiled", [])
@@ -502,7 +503,13 @@ def compare(record_path):
             lines, notes = [f"  FAIL {error}"], []
         changed += bool(lines)
         unchecked += bool(notes) and not lines
-        print(f"{'CHANGED' if lines else 'NOT CHECKED' if notes else 'UNCHANGED'} {model}")
+        if lines:
+            status = "CHANGED"
+        elif notes:
+            status = "NOT CHECKED"
+        else:
+            status = "UNCHANGED"
+        print(f"{status} {model}")
         if lines or notes:
             print("\n".join(lines + notes))
     not_checked = f", {unchecked} not checked" if unchecked else ""
