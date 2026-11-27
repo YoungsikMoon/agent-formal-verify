@@ -63,15 +63,15 @@ Each setup command also reports the temporary directory's free space; [tool setu
 
 If a system prerequisite such as Java or elan is missing, use the [setup skill](../setup/SKILL.md) to prepare it within the user's installation constraints and existing authorization. Report any prerequisite that cannot be prepared. If `java` on PATH has no runtime, set `JAVA` to a working JDK's `java` binary for the setup helper and the matrix runner.
 
-Read the [helper reference](references/helpers.md) before you interpret a helper's output. The helpers:
+Read the [helper reference](references/helpers.md) before you interpret a helper's output. It says what each helper checks and prints. The helpers:
 
-- The setup helper, [`scripts/setup.sh`](scripts/setup.sh): verifies TLC (`tla`), checks Kani (`rust`), and installs a missing Lean toolchain (`lean`).
-- The matrix runner, [`scripts/tlc-matrix.sh`](scripts/tlc-matrix.sh) and [`scripts/tlc_trace.py`](scripts/tlc_trace.py): run TLC across a `.matrix`, reduce failing traces, and write an HTML report via `TLC_HTML_REPORT`. Template: [`examples/tla-template/`](examples/tla-template/BoundedQueue.tla).
-- The Lean checker, [`scripts/lean-check.sh`](scripts/lean-check.sh): builds and audits `.lean` models, checks `<Property>.witness`, replays via `leanchecker`, and freezes specs (`--freeze`). Template: [`examples/lean-template/Model/BoundedQueue.lean`](examples/lean-template/Model/BoundedQueue.lean).
-- The Rust checker, [`scripts/kani-check.sh`](scripts/kani-check.sh): runs pinned Kani on proof harnesses and prints playback tests. Template: [`examples/kani-template/`](examples/kani-template/src/lib.rs).
-- The mutation runner, [`scripts/mutate.py`](scripts/mutate.py): tests `<Name>.mutations` on model copies (`DETECTED`, `MISSED`, `UNCOVERED`).
-- The sync helper, [`scripts/sync.py`](scripts/sync.py): lists commits and paths to read since a model's sync commit.
-- The baseline helper, [`scripts/baseline.py`](scripts/baseline.py): snapshots and compares model specs (`record`, `compare`, `move`).
+- The setup helper: [`scripts/setup.sh`](scripts/setup.sh)
+- The matrix runner: [`scripts/tlc-matrix.sh`](scripts/tlc-matrix.sh)
+- The Lean checker: [`scripts/lean-check.sh`](scripts/lean-check.sh)
+- The Rust checker: [`scripts/kani-check.sh`](scripts/kani-check.sh)
+- The mutation runner: [`scripts/mutate.py`](scripts/mutate.py)
+- The sync helper: [`scripts/sync.py`](scripts/sync.py)
+- The baseline helper: [`scripts/baseline.py`](scripts/baseline.py)
 
 Run every existing model's checker and mutations once, before any agent changes a model, and record the results. Then record what the models specify with `python3 <skill-dir>/scripts/baseline.py record <record-file> <model files>`, naming each existing `.matrix`, `.statements` and Kani harness file. Put `<record-file>` in a temporary directory outside the repository, and leave its path out of every brief. For a TLA+ or Lean model a pass shows only that the old description still holds; a Kani harness runs the code as it is now. A model that still describes the code needs no agent. When it passes, refresh its header as step 5 says; when it fails, take the failure through step 4. A Kani compile error means the harness no longer fits the code, so give it to an agent. An UNCOVERED line means the mutations file lacks a bug that the property detects, not that the code fails; give the model to an agent to add one. A check that passes here and fails after the update was passing on a stale description; say so in the reply.
 
@@ -121,7 +121,7 @@ Each fact about a model has one home:
 
 When a model's covered code is gone, propose retiring it in the reply. With the user's agreement, delete its files, including a Lean model's `.statements` record, its CI steps and its row in the testing documentation. For a Kani harness in a production file, delete its `#[cfg(kani)]` module, the header comment above it and its mutations file, not the production file.
 
-Do not add a report file per bug or paste run tables or traces into several documents. Write an HTML report only when asked, outside the repository unless told otherwise. Write `<skill-dir>` in any committed command; a path from this machine fails for the next reader.
+Do not add a report file per bug or paste run tables or traces into several documents. Write an HTML report only when asked. Set `TLC_HTML_REPORT` for the matrix runner to a path outside the repository unless told otherwise. Write `<skill-dir>` in any committed command; a path from this machine fails for the next reader.
 
 ## What this does not cover
 
