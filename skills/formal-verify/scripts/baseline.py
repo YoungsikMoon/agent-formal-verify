@@ -341,8 +341,8 @@ class KaniKind:
     def changes(self, entry, path):
         surface = kani_surface(path, self.reader)
         lines = differences(entry["surface"], surface, ("assume", "stub"))
-        unchecked = ("  not checked against Kani at record, so compare cannot see a harness that "
-                     "stopped compiling on a route that the record does not read")
+        unchecked = ("  not checked against Kani at record, so compare cannot tell a harness that "
+                     "stopped compiling from one that never compiled")
         try:
             problems, names = compiled_problems(path, surface, self.reader, entry.get("compiled"))
         except ValueError as error:
@@ -351,7 +351,12 @@ class KaniKind:
             return lines, [unchecked, f"  {error}"]
         if names is None or "compiled" in entry and not entry.get("partial"):
             return lines + problems, []
-        return lines + problems, [unchecked]
+        # Name each recorded harness that Kani does not compile now; a harness behind a feature that is not a
+        # default never compiles, so this cannot count as a change.
+        recorded = {"harness " + re.sub(r"\[\d+\]$", "", KANI_KEY.fullmatch(item)[2])
+                    for item in entry["surface"] if item.startswith("harness ") and item in surface}
+        missing = sorted(recorded - set(names) - set(entry.get("compiled", ())))
+        return lines + problems, [unchecked, *(f"  not compiled now {item}" for item in missing)]
 
     def valid(self, entry):
         compiled = entry.get("compiled", [])
