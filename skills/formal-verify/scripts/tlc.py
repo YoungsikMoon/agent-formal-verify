@@ -627,15 +627,25 @@ class Runner:
         self.report(result)
 
 
+REPORT_REMEDY = "set it to a file in an existing directory that you can write to, or unset it to write no report"
+
+
 def validate_report_path(raw: str) -> Path | None:
-    """Validate TLC_HTML_REPORT path upfront before running TLC, or return None when unset."""
+    """Return the TLC_HTML_REPORT path, checked before TLC starts, or None when it is unset.
+
+    Raise runner.Unavailable naming the setting when the report cannot be written there.
+    """
     trimmed = raw.strip()
     if not trimmed:
         return None
+
+    def unavailable(problem):
+        return runner.Unavailable(f"UNAVAILABLE TLC_HTML_REPORT={trimmed!r} {problem}; {REPORT_REMEDY}")
+
     seps = tuple(dict.fromkeys(s for s in ("/", os.sep, os.altsep) if s))
     dot_suffixes = tuple(f"{sep}." for sep in seps) + tuple(f"{sep}.." for sep in seps)
     if trimmed in (".", "..") or trimmed.endswith(seps + dot_suffixes):
-        raise ValueError(f"TLC_HTML_REPORT {trimmed} is a directory")
+        raise unavailable("is a directory")
     path = Path(trimmed)
     try:
         is_dir = path.is_dir()
@@ -643,17 +653,17 @@ def validate_report_path(raw: str) -> Path | None:
         exists = path.exists()
         is_file = path.is_file() if exists else False
     except OSError as error:
-        raise ValueError(f"TLC_HTML_REPORT {trimmed} is not accessible: {error}") from error
+        raise unavailable(f"is not accessible: {error}") from error
     if is_dir:
-        raise ValueError(f"TLC_HTML_REPORT {path} is a directory")
+        raise unavailable("is a directory")
     if not parent_is_dir:
-        raise ValueError(f"TLC_HTML_REPORT parent directory {path.parent} does not exist")
+        raise unavailable("is not in an existing directory")
     if exists and not is_file:
-        raise ValueError(f"TLC_HTML_REPORT {path} is not a regular file")
+        raise unavailable("is not a regular file")
     try:
         fd, temp_path = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
     except OSError as error:
-        raise ValueError(f"TLC_HTML_REPORT {path} is not writable: {error}") from error
+        raise unavailable(f"is not writable: {error}") from error
     try:
         os.close(fd)
     finally:
@@ -673,12 +683,8 @@ def main():
     if not Path(matrix).is_file():
         print(f"FAIL {matrix} does not exist")
         return 1
-    try:
-        report_path = validate_report_path(os.environ.get("TLC_HTML_REPORT", ""))
-    except ValueError as error:
-        print(f"FAIL {error}")
-        return 1
     tlc = Tlc()
+    report_path = validate_report_path(os.environ.get("TLC_HTML_REPORT", ""))
     with tempfile.TemporaryDirectory(dir=storage.ensure_temp_root()) as work:
         matrix_runner = Runner(tlc, Path(matrix).resolve().parent, only, lambda result: print("\n".join(render(result)), flush=True), Path(work),
                                keep_results=report_path is not None)
@@ -699,8 +705,9 @@ def main():
         try:
             tlc_report.write_html(report_path, Path(matrix).name, matrix_runner.results, summary_line, only=only)
         except OSError as error:
-            print(f"FAIL TLC_HTML_REPORT {report_path}: {error}")
-            return 1
+            # A failed run's status wins over a report that could not be written.
+            print(f"UNAVAILABLE TLC_HTML_REPORT={str(report_path)!r} could not be written: {error}; {REPORT_REMEDY}")
+            return 1 if matrix_runner.failed else 3
     return int(matrix_runner.failed)
 
 

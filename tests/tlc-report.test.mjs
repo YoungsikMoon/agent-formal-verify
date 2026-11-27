@@ -406,8 +406,8 @@ test("tlc-matrix.sh rejects invalid TLC_HTML_REPORT paths upfront without invoki
       TLC_JAR: join(dir, "tools.jar"),
       TLC_HTML_REPORT: badPath,
     });
-    assert.equal(res.status, 1, badPath);
-    includes(res.stdout, "FAIL TLC_HTML_REPORT");
+    assert.equal(res.status, 3, badPath);
+    includes(res.stdout, "UNAVAILABLE TLC_HTML_REPORT=");
     assert.equal(existsSync(join(dir, "calls")), false);
   }
 
@@ -421,8 +421,8 @@ test("tlc-matrix.sh rejects invalid TLC_HTML_REPORT paths upfront without invoki
         TLC_JAR: join(dir, "tools.jar"),
         TLC_HTML_REPORT: join(roDir, "report.html"),
       });
-      assert.equal(res.status, 1);
-      includes(res.stdout, "FAIL TLC_HTML_REPORT");
+      assert.equal(res.status, 3);
+      includes(res.stdout, "UNAVAILABLE TLC_HTML_REPORT=");
       assert.equal(existsSync(join(dir, "calls")), false);
     } finally {
       chmodSync(roDir, 0o755);
@@ -500,8 +500,8 @@ test("tlc-matrix.sh rejects trailing slash TLC_HTML_REPORT without creating or m
     TLC_JAR: join(dir, "tools.jar"),
     TLC_HTML_REPORT: `${missingOut}/`,
   });
-  assert.equal(resMissing.status, 1, resMissing.stdout + resMissing.stderr);
-  includes(resMissing.stdout, "FAIL TLC_HTML_REPORT");
+  assert.equal(resMissing.status, 3, resMissing.stdout + resMissing.stderr);
+  includes(resMissing.stdout, "UNAVAILABLE TLC_HTML_REPORT=");
   assert.equal(existsSync(missingOut), false);
   assert.equal(existsSync(join(dir, "calls")), false);
 
@@ -512,8 +512,8 @@ test("tlc-matrix.sh rejects trailing slash TLC_HTML_REPORT without creating or m
     TLC_JAR: join(dir, "tools.jar"),
     TLC_HTML_REPORT: `${existingOut}/`,
   });
-  assert.equal(resExisting.status, 1, resExisting.stdout + resExisting.stderr);
-  includes(resExisting.stdout, "FAIL TLC_HTML_REPORT");
+  assert.equal(resExisting.status, 3, resExisting.stdout + resExisting.stderr);
+  includes(resExisting.stdout, "UNAVAILABLE TLC_HTML_REPORT=");
   assert.equal(readFileSync(existingOut, "utf8"), "keep-sentinel");
   assert.equal(existsSync(join(dir, "calls")), false);
 });
@@ -533,8 +533,8 @@ test("tlc-matrix.sh rejects dot and parent-dot TLC_HTML_REPORT paths without mod
       TLC_JAR: join(dir, "tools.jar"),
       TLC_HTML_REPORT: badPath,
     });
-    assert.equal(res.status, 1, `${badPath}: ${res.stdout}${res.stderr}`);
-    includes(res.stdout, "FAIL TLC_HTML_REPORT");
+    assert.equal(res.status, 3, `${badPath}: ${res.stdout}${res.stderr}`);
+    includes(res.stdout, "UNAVAILABLE TLC_HTML_REPORT=");
     includes(res.stdout, "is a directory");
     assert.equal(readFileSync(existingFile, "utf8"), "keep-existing");
     assert.equal(existsSync(join(dir, "calls")), false);
@@ -553,8 +553,8 @@ test("tlc-matrix.sh rejects overlong filename and 0o000 parent directory without
     TLC_JAR: join(dir, "tools.jar"),
     TLC_HTML_REPORT: join(dir, "a".repeat(300)),
   });
-  assert.equal(overlong.status, 1, overlong.stdout + overlong.stderr);
-  includes(overlong.stdout, "FAIL TLC_HTML_REPORT");
+  assert.equal(overlong.status, 3, overlong.stdout + overlong.stderr);
+  includes(overlong.stdout, "UNAVAILABLE TLC_HTML_REPORT=");
   excludes(overlong.stderr, "Traceback");
   assert.equal(existsSync(join(dir, "calls")), false);
 
@@ -568,8 +568,8 @@ test("tlc-matrix.sh rejects overlong filename and 0o000 parent directory without
         TLC_JAR: join(dir, "tools.jar"),
         TLC_HTML_REPORT: join(lockedDir, "report.html"),
       });
-      assert.equal(res.status, 1, res.stdout + res.stderr);
-      includes(res.stdout, "FAIL TLC_HTML_REPORT");
+      assert.equal(res.status, 3, res.stdout + res.stderr);
+      includes(res.stdout, "UNAVAILABLE TLC_HTML_REPORT=");
       excludes(res.stderr, "Traceback");
       assert.equal(existsSync(join(dir, "calls")), false);
     } finally {
@@ -596,9 +596,65 @@ test("tlc-matrix.sh rejects non-regular file (FIFO) TLC_HTML_REPORT without invo
     TLC_JAR: join(dir, "tools.jar"),
     TLC_HTML_REPORT: fifoPath,
   });
-  assert.equal(res.status, 1, res.stdout + res.stderr);
-  includes(res.stdout, "FAIL TLC_HTML_REPORT");
+  assert.equal(res.status, 3, res.stdout + res.stderr);
+  includes(res.stdout, "UNAVAILABLE TLC_HTML_REPORT=");
   assert.equal(existsSync(join(dir, "calls")), false);
+});
+
+test("tlc-matrix.sh prints an unusable TLC_HTML_REPORT on one line, even with a newline in its directory", () => {
+  const dir = fixture();
+  writeFileSync(join(dir, "One.tla"), "---- MODULE One ----\n====\n");
+  writeFileSync(join(dir, "One.matrix"), "spec One.tla\nrun n=1 | N=1\n");
+  writeFileSync(join(dir, "tools.jar"), "user supplied");
+  const res = run(dir, "tlc-matrix.sh", [join(dir, "One.matrix")], {
+    JAVA: fakeTlc(dir, 'echo started >> "$TASK_TRACE"'),
+    TLC_JAR: join(dir, "tools.jar"),
+    TLC_HTML_REPORT: join(dir, "a\nb", "report.html"),
+  });
+  assert.equal(res.status, 3, res.stdout + res.stderr);
+  assert.equal(res.stdout, `UNAVAILABLE TLC_HTML_REPORT='${join(dir, "a\\nb", "report.html")}' is not in an existing directory; `
+    + "set it to a file in an existing directory that you can write to, or unset it to write no report\n");
+});
+
+test("tlc-matrix.sh reports a missing Java before a bad TLC_HTML_REPORT", () => {
+  const dir = fixture();
+  writeFileSync(join(dir, "One.tla"), "---- MODULE One ----\n====\n");
+  writeFileSync(join(dir, "One.matrix"), "spec One.tla\nrun n=1 | N=1\n");
+  const res = run(dir, "tlc-matrix.sh", [join(dir, "One.matrix")], {
+    JAVA: join(dir, "no-java"),
+    TLC_HTML_REPORT: join(dir, "missing", "report.html"),
+  });
+  assert.equal(res.status, 3, res.stdout + res.stderr);
+  includes(res.stdout, "has no runtime");
+  excludes(res.stdout, "TLC_HTML_REPORT");
+});
+
+test("tlc-matrix.sh exits 3 when the report cannot be written after passing runs, and 1 after a failing run", () => {
+  const passing = 'echo "Model checking completed. No error has been found."; echo "4 distinct states found"';
+  const failing = `cat ${JSON.stringify(join(logs, "tlc-invariant.log"))}; exit 12`;
+  for (const [body, status, outcome] of [[passing, 3, "PASS One n=1"], [failing, 1, "FAIL One n=1"]]) {
+    const dir = fixture();
+    writeFileSync(join(dir, "One.tla"), "---- MODULE One ----\n====\n");
+    writeFileSync(join(dir, "One.matrix"), "spec One.tla\nrun n=1 | N=1\n");
+    writeFileSync(join(dir, "tools.jar"), "user supplied");
+    const out = join(dir, "out");
+    mkdirSync(out);
+    const report = join(out, "report.html");
+    // The directory passes the check before TLC starts and is gone when the report is written.
+    const java = fakeTlc(dir, `rmdir ${JSON.stringify(out)}\n${body}`);
+    const res = run(dir, "tlc-matrix.sh", [join(dir, "One.matrix")], {
+      JAVA: java,
+      TLC_JAR: join(dir, "tools.jar"),
+      TLC_HTML_REPORT: report,
+    });
+    assert.equal(res.status, status, res.stdout + res.stderr);
+    const lines = res.stdout.trimEnd().split("\n");
+    includes(lines[0], outcome);
+    includes(lines.at(-2), "SUMMARY ");
+    assert.match(lines.at(-1), /^UNAVAILABLE TLC_HTML_REPORT='[^']+report\.html' could not be written: .+; set it to a file in an existing directory/);
+    excludes(res.stderr, "Traceback");
+    assert.equal(existsSync(report), false);
+  }
 });
 
 test("tlc-matrix.sh with zero-run matrix or non-matching filter exits 1 without creating or overwriting TLC_HTML_REPORT", () => {
