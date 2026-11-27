@@ -17,7 +17,8 @@ change, and so is an added item whose kind narrows what is checked.
                #[kani::unwind(...)] attributes and the #[cfg(...)] attributes other
                than cfg(kani), and the #[cfg_attr(..., cfg(...))] ones, on it, its enclosing
                items, the file and each out-of-line mod declaration that leads to the file from a crate root, through
-               #[path], and each kani::assume, kani::any_where, kani::cover! and
+               #[path], with each route in the file's crates that the record cannot read, such as a mod
+               declaration inside a macro, and each kani::assume, kani::any_where, kani::cover! and
                #[kani::stub] with its owning free function, under inline modules. Unsupported owners fail. Added covers and harnesses are allowed.
                Added assumes and stubs are changes.
                In a Cargo package, also the recorded harnesses that Kani compiles from the file; Kani must give
@@ -324,16 +325,17 @@ class KaniKind:
     def entry(self, path):
         surface = kani_surface(path, self.reader)
         entry = model_entry(self.name, surface)
+        notes = [f"  route not read: {route.message}" for route in self.reader.unread(path)]
         # A harness that no longer compiles is recorded from its text alone; compare asks Kani again.
         try:
             problems, names = compiled_problems(path, surface, self.reader)
         except ValueError as error:
-            return entry, f"  not checked against Kani: {error}"
+            return entry, "\n".join([*notes, f"  not checked against Kani: {error}"])
         if problems:
             raise ValueError(f"{path}: " + "; ".join(problem.strip().removeprefix("FAIL ") for problem in problems))
         if names is not None:
             entry["compiled"] = names
-        return entry, None
+        return entry, "\n".join(notes) or None
 
     def changes(self, entry, path):
         surface = kani_surface(path, self.reader)
