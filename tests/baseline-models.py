@@ -237,6 +237,28 @@ def write_crate(directory, files, dependencies=""):
         (directory / "src" / name).write_text(text)
 
 
+def kani_generator_width(work):
+    project, record = work / "width", work / "width.json"
+    wide = """#[cfg(kani)]
+#[kani::proof]
+#[kani::unwind(2)]
+fn sample_range() {
+    let n = u32::from(kani::any_where::<u16, _>(|n| *n != 0));
+    kani::cover!(n == 1);
+    assert!(n < 512);
+}
+"""
+    write_crate(project, {"lib.rs": wide})
+    source = project / "src/lib.rs"
+    assert "assertion failed: n < 512" in run(1, "kani-check.sh", project)
+    run(0, "baseline.py", "record", record, source)
+    source.write_text(wide.replace("u16", "u8"))
+    run(0, "kani-check.sh", project)
+    changed = run(1, "baseline.py", "compare", record)
+    assert "removed assume kani::any_where::<u16, _>" in changed
+    assert "added assume kani::any_where::<u8, _>" in changed
+
+
 def kani_routes(work):
     """Kani's own harness list decides whether a harness compiles through a route the record does not read."""
     write_crate(work / "builders", {"lib.rs": BUILDERS})
@@ -266,5 +288,6 @@ with tempfile.TemporaryDirectory(prefix="formal-baseline-") as directory:
     imported_property(Path(directory))
     fairness_subscript(Path(directory))
     kani_ownership(Path(directory))
+    kani_generator_width(Path(directory))
     kani_routes(Path(directory))
 print("ok: the baseline rejects narrowed checks and assumptions even when the real verifiers pass")
