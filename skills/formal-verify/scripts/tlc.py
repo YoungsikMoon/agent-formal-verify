@@ -88,12 +88,26 @@ class Reach:
 @dataclass(frozen=True)
 class Run:
     label: str
-    constants: str
+    bindings: tuple[tuple[str, str], ...]
+
+    @property
+    def constants(self):
+        return " ".join(f"{name}={value}" for name, value in self.bindings)
 
 
 @dataclass(frozen=True)
 class Malformed:
     message: str
+
+
+def _parse_run(label, constants):
+    bindings = []
+    for token in constants.split():
+        name, _, value = token.partition("=")
+        if not name or not value:
+            return Malformed(f"malformed constant {token!r} in run {label!r}: expected Name=Value")
+        bindings.append((name, value))
+    return Run(label, tuple(bindings))
 
 
 def _directives(lines):
@@ -131,7 +145,7 @@ def _directives(lines):
             elif not seen_spec:
                 yield Malformed(f"run '{label.rstrip()}' before any spec line")
             else:
-                yield Run(label.rstrip(), constants)
+                yield _parse_run(label.rstrip(), constants)
         else:
             yield Malformed(f"unknown directive: {line}")
 
@@ -513,7 +527,7 @@ def run_task(checker, matrix_dir, task, work, source=None, traces=False):
     spec, run = task.spec, task.run
     operator = task.reach.operator if task.reach else ""
     name = Path(spec).name.removesuffix(".tla")
-    run_constants = run.constants.strip()
+    run_constants = run.constants
     run_checks = tuple(check.line for check in task.checks)
     if not (matrix_dir / spec).is_file():
         return Result(Outcome.MISSING, name, run.label, detail=spec, constants=run_constants, checks=run_checks)
@@ -525,7 +539,7 @@ def run_task(checker, matrix_dir, task, work, source=None, traces=False):
                 dest.write_text(source, encoding="utf-8")
             else:
                 dest.write_bytes(module.read_bytes())
-        constants = "".join(f"  {pair.split('=')[0]} = {pair.split('=', 1)[-1]}\n" for pair in run.constants.split())
+        constants = "".join(f"  {name} = {value}\n" for name, value in run.bindings)
         config = f"CONSTANTS\n{constants}SPECIFICATION Spec\n"
         if not task.check_deadlock:
             config += "CHECK_DEADLOCK FALSE\n"
