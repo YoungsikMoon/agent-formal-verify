@@ -28,19 +28,12 @@ def _truncate(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 3] + "..."
 
 
+_MERMAID_SPECIAL = re.compile(r'[&#"<>:;{}]')
+
+
 def _sanitize_mermaid(text: str) -> str:
-    cleaned = _flatten(text)
-    cleaned = cleaned.replace("-->", "→").replace("|->", "↦")
-    cleaned = cleaned.replace("<<", "«").replace(">>", "»")
-    cleaned = (
-        cleaned.replace('"', "'")
-        .replace(";", ",")
-        .replace("<", "‹")
-        .replace(">", "›")
-        .replace(":", "=")
-        .replace("{", "(")
-        .replace("}", ")")
-    )
+    # Mermaid renders an entity code such as #123; as the character it names, so the label keeps the TLA+ text.
+    cleaned = _MERMAID_SPECIAL.sub(lambda m: f"#{ord(m.group())};", _flatten(text))
     while "%%" in cleaned:
         cleaned = cleaned.replace("%%", "% %")
     return cleaned
@@ -50,7 +43,7 @@ def _mermaid_step_label(step: tlc_trace.Step) -> str:
     action = _sanitize_mermaid(step.action or "Step")
     if not step.changed:
         return f"State {step.number}: {action} | unchanged"
-    parts = [f"{_sanitize_mermaid(d.name)}={_truncate(_sanitize_mermaid(d.new), 32)}" for d in step.changed[:2]]
+    parts = [f"{_sanitize_mermaid(d.name)}={_sanitize_mermaid(_truncate(_flatten(d.new), 32))}" for d in step.changed[:2]]
     extra = len(step.changed) - 2
     if extra > 0:
         parts.append(f"(+{extra} more)")

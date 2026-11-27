@@ -10,8 +10,8 @@ import { excludes, fakeTlc, fixture, includes, logs, removeFixtures, root, run, 
 
 afterEach(removeFixtures);
 
-function runPython(code) {
-  const result = spawnSync("python3", ["-B", "-c", code], { cwd: root, encoding: "utf8" });
+function runPython(code, ...args) {
+  const result = spawnSync("python3", ["-B", "-c", code, ...args], { cwd: root, encoding: "utf8" });
   return result;
 }
 
@@ -20,12 +20,12 @@ function callMermaid(logFile, options = {}) {
     "import json, sys",
     `sys.path.insert(0, ${JSON.stringify(scripts)})`,
     "import tlc_report, tlc_trace",
-    `with open(${JSON.stringify(join(logs, logFile))}, encoding="utf-8", newline="") as f:`,
+    'with open(sys.argv[1], encoding="utf-8", newline="") as f:',
     "    trace = tlc_trace.parse(f)",
-    `opts = json.loads(${JSON.stringify(JSON.stringify(options))})`,
+    "opts = json.loads(sys.argv[2])",
     "print(tlc_report.to_mermaid(trace, **opts), end='')",
   ].join("\n");
-  return runPython(script);
+  return runPython(script, join(logs, logFile), JSON.stringify(options));
 }
 
 // The report's own script is its last plain <script> element. Find it by index: CodeQL flags a regex over HTML as a tag filter.
@@ -62,11 +62,11 @@ function callMermaidText(rawLog, options = {}) {
     "import json, re, sys",
     `sys.path.insert(0, ${JSON.stringify(scripts)})`,
     "import tlc_report, tlc_trace",
-    `trace = tlc_trace.parse(re.split(r"\\r\\n|\\r|\\n", ${JSON.stringify(rawLog)}))`,
-    `opts = json.loads(${JSON.stringify(JSON.stringify(options))})`,
+    'trace = tlc_trace.parse(re.split(r"\\r\\n|\\r|\\n", sys.argv[1]))',
+    "opts = json.loads(sys.argv[2])",
     "print(tlc_report.to_mermaid(trace, **opts), end='')",
   ].join("\n");
-  return runPython(script);
+  return runPython(script, rawLog, JSON.stringify(options));
 }
 
 test("tlc_report.to_mermaid renders liveness lasso with and without action and handles missing lasso target", () => {
@@ -123,25 +123,34 @@ test("tlc_report.to_mermaid renders multi-step and initial-state reach witnesses
     '/\\ a = << 1, "two" >>',
     "/\\ b = [k |-> {1, 2}; m: 3]",
     "/\\ c = a --> b\n       more",
+    "State 2: <Send({m}): x>",
+    `/\\ a = ${"{".repeat(40)}`,
+    '/\\ b = "#1; &amp; x # y"',
+    "/\\ c = a --> b\n       more",
   ].join("\n");
   const special = callMermaidText(specialLog, { title: 'Check "x"; a --> b\nline2' });
   assert.equal(special.status, 0, special.stderr);
-  includes(special.stdout, "(+1 more)");
-  for (const line of special.stdout.split("\n")) {
-    if (line.startsWith('state "')) {
-      const inner = line.slice(7, line.lastIndexOf('" as S'));
-      excludes(inner, '"');
-      excludes(inner, ";");
-      excludes(inner, "-->");
-      excludes(inner, "<");
-      excludes(inner, ">");
-      excludes(inner, "{");
-      excludes(inner, "}");
-      excludes(inner, "\n");
-    }
-    if (line.startsWith("%% ")) {
-      excludes(line, "-->");
-      excludes(line, ";");
+  const lines = special.stdout.split("\n");
+  // Mermaid renders the entity code #<decimal>; as the character with that code.
+  const rendered = (text) => text.replace(/#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)));
+  const labels = lines.filter((line) => line.startsWith('state "')).map((line) => line.slice(7, line.lastIndexOf('" as S')));
+  assert.deepEqual(labels.map(rendered), [
+    'State 1: Init | a=<< 1, "two" >>, b=[k |-> {1, 2}; m: 3], (+1 more)',
+    `State 2: Send({m}): x | a=${"{".repeat(29)}..., b="#1; &amp; x # y"`,
+  ]);
+  const transition = lines.find((line) => line.startsWith("S1 --> S2 : "));
+  assert.equal(rendered(transition), "S1 --> S2 : Send({m}): x");
+  const comment = lines.find((line) => line.startsWith("%% "));
+  assert.equal(rendered(comment), '%% Check "x"; a --> b line2');
+  const traceText = [
+    ...labels.map((label) => label.replace(/^State \d+: /, "")),
+    transition.slice("S1 --> S2 : ".length),
+    comment.slice("%% ".length),
+  ];
+  for (const text of traceText) {
+    const bare = text.replace(/#\d+;/g, "");
+    for (const character of ['"', "<", ">", "{", "}", ":", ";", "#", "&"]) {
+      excludes(bare, character);
     }
   }
 });
@@ -151,11 +160,11 @@ function callSvg(logFile, traceId = "trace-0", kind = "fail") {
     "import sys",
     `sys.path.insert(0, ${JSON.stringify(scripts)})`,
     "import tlc_report, tlc_trace",
-    `with open(${JSON.stringify(join(logs, logFile))}, encoding="utf-8", newline="") as f:`,
+    'with open(sys.argv[1], encoding="utf-8", newline="") as f:',
     "    trace = tlc_trace.parse(f)",
-    `print(tlc_report.render_svg(trace, trace_id=${JSON.stringify(traceId)}, kind=${JSON.stringify(kind)}), end='')`,
+    "print(tlc_report.render_svg(trace, trace_id=sys.argv[2], kind=sys.argv[3]), end='')",
   ].join("\n");
-  return runPython(script);
+  return runPython(script, join(logs, logFile), traceId, kind);
 }
 
 test("tlc_report.render_svg renders clickable state chain, arrow markers, lasso loopback, zero web URLs, and escapes HTML", () => {
@@ -252,7 +261,7 @@ test("tlc_report.render_html builds self-contained XSS-safe report with table, S
     "import json, sys",
     `sys.path.insert(0, ${JSON.stringify(scripts)})`,
     "import tlc, tlc_report, tlc_trace",
-    `xss = ${JSON.stringify(payload)}`,
+    "xss = sys.argv[1]",
     "fail_trace = tlc_trace.Trace((",
     "  tlc_trace.Step(1, 'Initial predicate', (('x', '0'), ('msg', xss)), (tlc_trace.VarDiff('x', None, '0'), tlc_trace.VarDiff('msg', None, xss))),",
     "  tlc_trace.Step(2, 'Next', (('x', '1'), ('msg', xss + '\\nline2')), (tlc_trace.VarDiff('x', '0', '1'), tlc_trace.VarDiff('msg', xss, xss + '\\nline2'))),",
@@ -268,7 +277,7 @@ test("tlc_report.render_html builds self-contained XSS-safe report with table, S
     "html_doc = tlc_report.render_html('checks.matrix', results, 'SUMMARY 1 of 3 runs passed, 1 of 1 reach checks passed, 4 distinct states in total', only='n=', generated_at='2026-11-26T00:00:00Z')",
     "print(html_doc, end='')",
   ].join("\n");
-  const result = runPython(script);
+  const result = runPython(script, payload);
   assert.equal(result.status, 0, result.stderr);
   const doc = result.stdout;
   assert.ok(doc.startsWith("<!DOCTYPE html>"), doc.slice(0, 60));
@@ -311,10 +320,10 @@ test("tlc_report.render_html handles all-PASS matrix with zero traces and write_
     `sys.path.insert(0, ${JSON.stringify(scripts)})`,
     "import tlc, tlc_report",
     "results = [tlc.Result(tlc.Outcome.PASS, 'One', 'ok', detail='4 distinct states found', states=4, constants='N=1', duration_s=0.1)]",
-    `written = tlc_report.write_html(Path(${JSON.stringify(outFile)}), 'ok.matrix', results, 'SUMMARY 1 of 1 runs passed, 4 distinct states in total')`,
+    "written = tlc_report.write_html(Path(sys.argv[1]), 'ok.matrix', results, 'SUMMARY 1 of 1 runs passed, 4 distinct states in total')",
     "print(str(written))",
   ].join("\n");
-  const result = runPython(script);
+  const result = runPython(script, outFile);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), outFile);
   const doc = readFileSync(outFile, "utf8");
@@ -717,19 +726,29 @@ test("tlc_report inline script renderStep updates counter, header, diff, snapsho
     "import sys",
     `sys.path.insert(0, ${JSON.stringify(scripts)})`,
     "import tlc, tlc_report, tlc_trace",
-    "steps = (",
-    "  tlc_trace.Step(1, 'Init', (('x', '0'), ('y', '10')), (tlc_trace.VarDiff('x', None, '0'), tlc_trace.VarDiff('y', None, '10'))),",
-    "  tlc_trace.Step(2, 'Inc', (('x', '1'), ('y', '10')), (tlc_trace.VarDiff('x', '0', '1'),)),",
-    "  tlc_trace.Step(3, 'Stuttering', (), ()),",
-    ")",
-    "results = [tlc.Result(tlc.Outcome.FAIL, 'One', 'stutter', detail='err', trace=tlc_trace.Trace(steps))]",
+    "trace = tlc_trace.parse(sys.argv[1].splitlines())",
+    "results = [tlc.Result(tlc.Outcome.FAIL, 'One', 'stutter', detail='err', trace=trace)]",
     "print(tlc_report.render_html('One.matrix', results, 'SUMMARY'), end='')",
   ].join("\n");
-  const rendered = runPython(py);
+  // TLC 1.7.4 prints the stuttering step at the end of a liveness counter-example with no variables.
+  const log = [
+    "Error: Temporal properties were violated.",
+    "Error: The following behavior constitutes a counter-example:",
+    "State 1: <Init>",
+    "/\\ x = 0",
+    "/\\ y = 10",
+    "State 2: <Inc>",
+    "/\\ x = 1",
+    "/\\ y = 10",
+    "State 3: Stuttering",
+    "Finished checking temporal properties in 00s",
+  ].join("\n");
+  const rendered = runPython(py, log);
   assert.equal(rendered.status, 0, rendered.stderr);
   const htmlDoc = rendered.stdout;
   includes(htmlDoc, 'id="snapshot-summary-0"');
-  includes(htmlDoc, "Full State Snapshot (0 variables)");
+  includes(htmlDoc, "Full State Snapshot (2 variables)");
+  excludes(htmlDoc, "Full State Snapshot (0 variables)");
 
   const dataMatch = htmlDoc.match(/<script type="application\/json" id="trace-data-0">([\s\S]*?)<\/script>/);
   assert.ok(dataMatch, "missing trace-data-0 payload");
@@ -757,7 +776,7 @@ test("tlc_report inline script renderStep updates counter, header, diff, snapsho
   headerEl.textContent = "State 3 — Stuttering";
   const diffBodyEl = makeEl("tbody");
   const snapSummaryEl = makeEl("summary");
-  snapSummaryEl.textContent = "Full State Snapshot (0 variables)";
+  snapSummaryEl.textContent = "Full State Snapshot (2 variables)";
   const snapBodyEl = makeEl("tbody");
 
   const dataScriptEl = { id: "trace-data-0", textContent: dataMatch[1] };
@@ -828,8 +847,8 @@ test("tlc_report inline script renderStep updates counter, header, diff, snapsho
   buttons[1].listeners.click();
   assert.equal(counterEl.textContent, "Step 3 / 3");
   assert.equal(headerEl.textContent, "State 3 — Stuttering");
-  assert.equal(snapSummaryEl.textContent, "Full State Snapshot (0 variables)");
+  assert.equal(snapSummaryEl.textContent, "Full State Snapshot (2 variables)");
   assert.deepEqual(rowTexts(diffBodyEl), [["No variable changes in this step."]]);
-  assert.deepEqual(rowTexts(snapBodyEl), []);
+  assert.deepEqual(rowTexts(snapBodyEl), [["x", "1"], ["y", "10"]]);
   assert.deepEqual(traceNodes.map((n) => n.selected), [false, false, true]);
 });
