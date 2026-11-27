@@ -257,10 +257,10 @@ def tla_surface(path):
     for task in tasks:
         if task.reach:
             surface.add(f"reach {task.spec} {task.reach.operator} | {collapse(task.reach.match)}",
-                        {"run": collapse(task.run.label), "constants": collapse(task.run.constants)})
+                        {"run": collapse(task.run.label), "constants": task.run.constants})
             specs[task.spec].add(task.reach.operator)
         else:
-            run = surface.add(f"run {task.spec} {collapse(task.run.label)}", collapse(task.run.constants))
+            run = surface.add(f"run {task.spec} {collapse(task.run.label)}", task.run.constants)
             for check in task.checks:
                 for name in check.names:
                     surface.add(f"check {task.spec} {check.kind} {name} | [{run}]")
