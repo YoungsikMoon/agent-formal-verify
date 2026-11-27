@@ -6,6 +6,7 @@ from __future__ import annotations
 import dataclasses
 import html
 import json
+import os
 import re
 import sys
 import time
@@ -456,6 +457,8 @@ def _trace_card(idx: int, result: object) -> str:
 
 def render_html(matrix_name: str, results: list, summary: str, *, only: str = "", generated_at: str | None = None) -> str:
     """Render a complete, self-contained HTML5 report for a TLC matrix run."""
+    # A file name argument that is not UTF-8 arrives with lone surrogates, which the UTF-8 page cannot hold.
+    matrix_name = os.fsencode(matrix_name).decode("utf-8", "replace")
     timestamp = generated_at or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     has_failure = (not results) or any(r.outcome.value not in ("pass", "witness") for r in results)
     overall = "FAIL" if has_failure else "PASS"
