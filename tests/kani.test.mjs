@@ -245,6 +245,45 @@ for (const outcome of ["success", "failure"]) {
   });
 }
 
+test("Rust mutations stage a workspace with its temporary root inside the crate", () => {
+  const { dir, name } = kaniFixture("failure", { requiredCrateFiles: { "scratch/input": "keep" } });
+  const mutations = rustMutation(dir, name);
+  const scratch = join(dir, "scratch");
+  mkdirSync(scratch);
+  writeFileSync(join(scratch, "input"), "keep");
+  symlinkSync(scratch, join(dir, "scratch-alias"));
+  const result = runKani(dir, "mutate.py", [mutations], { TMPDIR: scratch });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  includes(result.stdout, "DETECTED guard");
+  assert.deepEqual(readdirSync(scratch), ["input"]);
+});
+
+test("live staged crates omit mutation work trees through both paths to the temporary root", () => {
+  const dir = fixture();
+  const scratch = join(dir, "scratch");
+  mkdirSync(scratch);
+  writeFileSync(join(scratch, "input"), "keep");
+  symlinkSync(scratch, join(dir, "alias"));
+  const program = `
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from kani import CrateSources
+crate = Path(sys.argv[2]).resolve()
+sources = CrateSources({crate}, set())
+for name in ("first", "second"):
+    work = crate / "scratch" / name
+    work.mkdir()
+    copy = sources.stage(crate, work)
+    for relative in ("scratch", "alias"):
+        directory = copy / relative
+        assert sorted(p.name for p in directory.iterdir()) == ["input"], list(directory.iterdir())
+        assert (directory / "input").read_text() == "keep"
+`;
+  const result = spawnSync("python3", ["-B", "-c", program, scripts, dir], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test("Rust mutations copy a crate that holds a dangling symlink, such as an editor lock file", () => {
   const { dir, name } = kaniFixture("failure");
   const mutations = rustMutation(dir, name);

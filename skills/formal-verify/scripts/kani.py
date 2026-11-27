@@ -86,17 +86,26 @@ class CrateSources:
     roots: set
     outputs: set
 
-    def stage(self, crate, destination):
+    def stage(self, crate, work):
         """Copy local packages in their relative layout, omitting Cargo's build directories."""
         anchor = Path(os.path.commonpath(self.roots))
+        work = work.resolve()
+        # Other mutations can stage into the same workspace-local temporary root.
+        (work / "CACHEDIR.TAG").write_text("Signature: 8a477f597d28d172789f06886806bc55\n", encoding="ascii")
+        destination = work / "source"
 
         def ignore(directory, names):
             # Cargo tags each build directory, including one left behind after the target directory moved.
             # A dangling symlink, such as an editor's lock file, is skipped here because copytree's
             # ignore_dangling_symlinks reaches only the top directory before Python 3.10.
-            return [name for name in names if name == ".git" or Path(directory) / name in self.outputs
-                    or (Path(directory) / name / "CACHEDIR.TAG").is_file()
-                    or (Path(directory) / name).is_symlink() and not (Path(directory) / name).exists()]
+            directory = Path(directory).resolve()
+            skipped = []
+            for name in names:
+                path = directory / name
+                if (name == ".git" or path == work or path in self.outputs or (path / "CACHEDIR.TAG").is_file()
+                        or path.is_symlink() and (not path.exists() or path.resolve().is_relative_to(work))):
+                    skipped.append(name)
+            return skipped
 
         for root in self.roots:
             if self.roots.isdisjoint(root.parents):
