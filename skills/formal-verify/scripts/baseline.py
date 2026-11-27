@@ -13,7 +13,8 @@ change, and so is an added item whose kind narrows what is checked.
                and the normalized definitions of Spec,
                of each operator a check or reach line names, and of the operators those
                reference through local EXTENDS. Local INSTANCE substitutions retain their whole module tree.
-  .rs          Kani. Each qualified harness name with the #[cfg(...)] attributes other
+  .rs          Kani. Each qualified harness name with its #[kani::should_panic] and
+               #[kani::unwind(...)] attributes and the #[cfg(...)] attributes other
                than cfg(kani), and the #[cfg_attr(..., cfg(...))] ones, on it, its enclosing
                items, the file and each out-of-line mod declaration that leads to the file from a crate root, through
                #[path], and each kani::assume, kani::any_where, kani::cover! and

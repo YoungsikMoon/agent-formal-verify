@@ -98,10 +98,11 @@ MACROS = (
     ("stub", re.compile(KANI_ATTRIBUTE + r"stub\s*\(")),
 )
 PROOF = re.compile(KANI_ATTRIBUTE + r"proof(?:_for_contract\s*\([^)]*\))?\s*\)?\s*\]")
-KANI_TOKEN = re.compile(r"\bkani\s*::\s*(?:assume|any_where|cover|stub|proof)\w*\b")
+HARNESS_ATTRIBUTE = re.compile(KANI_ATTRIBUTE + r"(should_panic|unwind\s*\([^()]*\))\s*\)?\s*\]")
+KANI_TOKEN = re.compile(r"\bkani\s*::\s*(?:assume|any_where|cover|stub|proof|should_panic|unwind)\w*\b")
 ATTRIBUTE = re.compile(r"#\s*(!\s*)?\[")
 INNER_ATTRIBUTE = re.compile(r"[\s\ufeff]*#\s*!\s*\[")
-RENAMING_IMPORT = re.compile(r"\buse\s+[^;]*?(?<![\w:])(?:::\s*)?kani\b[^;]*?(?:\bas\b|\*|\b(?:assume|any_where|cover|stub|proof)\w*\b)|\bextern\s+crate\s+kani\s+as\b")
+RENAMING_IMPORT = re.compile(r"\buse\s+[^;]*?(?<![\w:])(?:::\s*)?kani\b[^;]*?(?:\bas\b|\*|\b(?:assume|any_where|cover|stub|proof|should_panic|unwind)\w*\b)|\bextern\s+crate\s+kani\s+as\b")
 
 
 def applies_cfg(attribute):
@@ -408,7 +409,7 @@ def kani_surface(path, reader):
     source = rust_masks(path.read_text(encoding="utf-8"))
     text, mask = source.uncommented, source.without_comments_or_strings
     if renaming := RENAMING_IMPORT.search(mask):
-        raise ValueError(f"{path}: '{collapse(renaming[0])}' brings a Kani assumption, cover, stub or harness attribute in under another name; write each as kani::<name> so the record can read it")
+        raise ValueError(f"{path}: '{collapse(renaming[0])}' brings a Kani assumption, cover, stub, harness or harness attribute in under another name; write each as kani::<name> so the record can read it")
     functions, modules, opaque, _, _ = rust_functions(mask)
     declared = route_label(path, reader.routes(path))
 
@@ -429,16 +430,22 @@ def kani_surface(path, reader):
             argument = rust_masks(text[match.end():end - 1])
             owner = owner_at(match.start(), attribute=kind == "stub").name
             spans.append((match.start(), f"{kind} {collapse(argument.uncommented, argument.literals)} in {owner}", ""))
+    # Kani rejects these attributes on a function without #[kani::proof], so only a harness's are recorded.
+    attributes = {}
+    for match in HARNESS_ATTRIBUTE.finditer(mask):
+        read.append(match.span())
+        attributes.setdefault(owner_at(match.start(), attribute=True), []).append("kani::" + re.sub(r"\s+", "", match[1]))
     for match in PROOF.finditer(mask):
         read.append(match.span())
         harness = owner_at(match.start(), attribute=True)
         enclosing = sorted((item for item in functions + modules if item.start <= harness.start and harness.end <= item.end), key=lambda item: item.start)
-        guards = " ".join(filter(None, (declared, cfg_guards(source, [(0, 0, -1)] + [(item.start, item.keyword, item.body) for item in enclosing]))))
-        spans.append((match.start(), f"harness {harness.name}", guards))
+        guards = cfg_guards(source, [(0, 0, -1)] + [(item.start, item.keyword, item.body) for item in enclosing])
+        value = " ".join(filter(None, (declared, guards, *sorted(attributes.get(harness, ())))))
+        spans.append((match.start(), f"harness {harness.name}", value))
     for token in KANI_TOKEN.finditer(mask):
         if not any(start <= token.start() < end for start, end in read):
             line = mask.count("\n", 0, token.start()) + 1
-            raise ValueError(f"{path}:{line}: '{collapse(token[0])}' is in a form the record cannot read; write kani::assume(...), kani::any_where(...), kani::cover!(...), #[kani::stub(...)] or #[kani::proof], alone or under #[cfg_attr(kani, ...)]")
+            raise ValueError(f"{path}:{line}: '{collapse(token[0])}' is in a form the record cannot read; write kani::assume(...), kani::any_where(...), kani::cover!(...), #[kani::stub(...)], #[kani::proof], #[kani::should_panic] or #[kani::unwind(...)], alone or under #[cfg_attr(kani, ...)]")
     for _, item, guards in sorted(spans):
         surface.add(item, guards)
     return surface
