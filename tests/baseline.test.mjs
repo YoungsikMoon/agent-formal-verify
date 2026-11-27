@@ -649,13 +649,13 @@ test("each route in the crate that the record cannot read is noted in the harnes
   const dir = crate({ "src/lib.rs": "pub mod queue;\n", "src/main.rs": declare, "src/queue.rs": queue });
   const [record, proofs] = ["record.json", "src/queue.rs"].map((name) => join(dir, name));
   const recorded = baseline(dir, "record", record, proofs);
-  assert.deepEqual(lines(recorded).slice(1), [`  route not read: ${join(dir, "src/main.rs")}:2: mod queue is inside a macro`]);
-  assert.equal(JSON.parse(readFileSync(record, "utf8")).models[proofs].surface["harness proofs::check_push"], "unread(main.rs: mod queue in a macro)");
+  assert.deepEqual(lines(recorded).slice(1), [`  route not read: ${join(dir, "src/main.rs")}:2: mod queue is inside a macro or block`]);
+  assert.equal(JSON.parse(readFileSync(record, "utf8")).models[proofs].surface["harness proofs::check_push"], "unread(main.rs: mod queue in a macro or block)");
   // The note names the route, not its guards, so only adding or removing such a route is changed.
   edit(join(dir, "src/main.rs"), 'feature = "slow"', 'feature = "fast"');
   assertUnchanged(compared({ dir, record, rust: proofs }), "rust");
   writeFileSync(join(dir, "src/main.rs"), "fn main() {}\n");
-  assert.deepEqual(lines(baseline(dir, "compare", record)), [`CHANGED ${proofs}`, "  changed harness proofs::check_push", "    old: unread(main.rs: mod queue in a macro)", "    new: ", "SUMMARY 0 unchanged, 1 changed"]);
+  assert.deepEqual(lines(baseline(dir, "compare", record)), [`CHANGED ${proofs}`, "  changed harness proofs::check_push", "    old: unread(main.rs: mod queue in a macro or block)", "    new: ", "SUMMARY 0 unchanged, 1 changed"]);
 
   // An unreadable #[path] or include!, and a file that does not parse, may each lead to the harness file too.
   const lib = 'mod other;\nmod proofs;\n#[path = "a\\x2e.rs"] mod p;\ninclude!(concat!(env!("OUT_DIR"), "/gen.rs"));\n';
