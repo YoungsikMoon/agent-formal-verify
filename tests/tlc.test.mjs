@@ -432,6 +432,29 @@ test("the trace comparison reports a state that reduce prints after the end of p
   assert.deepEqual(other, ["reduce() prints the states ['state 1: Init', 'state 2: Next'] and parse() reads ['state 1: Init']"]);
 });
 
+test("the trace comparison reports a lasso that reduce prints before the last state or with other text", () => {
+  const trace = [
+    "Error: The following behavior constitutes a counter-example:",
+    "State 1: <Initial predicate>",
+    "/\\ x = 0",
+    "",
+    "State 2: <Next line 1, col 1 to line 1, col 9 of module M>",
+    "/\\ x = 1",
+  ];
+  const compare = (lasso) => traceAgreement(
+    "print(json.dumps(tlc_trace_agreement.differences(sys.argv[1].split('\\n'))))",
+    [...trace, lasso].join("\n"),
+  );
+  // With no blank line before it, reduce prints the lasso before the state it ends.
+  assert.deepEqual(compare("Back to state 1: <Next line 1, col 1 to line 1, col 9 of module M>"), [[], [
+    "reduce() prints the headers ['state 1: Initial predicate', 'Back to state 1: <Next line 1, col 1 to line 1, col 9 of module M>', "
+      + "'state 2: Next'] and parse() reads the lasso 'Back to state 1: Next' after the last state",
+  ]]);
+  // reduce strips only the newline from a line, so a carriage return stays on the lasso it prints.
+  assert.deepEqual(compare("\nBack to state 1\r"), [[], ["reduce() prints 'Back to state 1\\r' and parse() reads 'Back to state 1'"]]);
+  assert.deepEqual(compare("\nBack to state 1"), [[], []]);
+});
+
 function matrixFixture(lines, java, log = "tlc-invariant.log") {
   const dir = fixture();
   for (const sub of ["a", "b"]) mkdirSync(join(dir, sub));

@@ -7,8 +7,8 @@ variables of each state that lists them, and on the state that a liveness lasso 
 only the variables that change, so the variables are compared with states(), which reduce() prints from.
 They differ on purpose in three ways, which differences() names instead of reporting:
 
-- "lasso location": reduce() prints a "Back to state" line as TLC wrote it, with the source location of its
-  action, while parse() keeps only the action, which the report names.
+- "lasso location": reduce() prints a "Back to state" line as TLC wrote it, with its action and the action's
+  source location in angle brackets, while parse() keeps only the action, which the report names.
 - "initial state": for a violation by the initial state, reduce() finds no trace, so the matrix runner prints
   the end of the log, while parse() returns a trace of that one state for the report.
 - "stuttering values": TLC prints a stuttering step with no variables. reduce() prints it with none, while
@@ -22,6 +22,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "skills/formal-veri
 import tlc_trace
 
 LASSO = "Back to state"
+# How TLC writes where an action is defined, after the action's name.
+LOCATION = r" line \d+, col \d+ to line \d+, col \d+ of module \w+"
 
 
 def differences(lines):
@@ -30,23 +32,20 @@ def differences(lines):
     trace = tlc_trace.parse(lines)
     printed = tlc_trace.reduce(lines) or []
     headers = [line.removeprefix("--- ") for line in printed if line.startswith("--- ")]
-    titles = [header for header in headers if not header.startswith(LASSO)]
-    lassos = [header for header in headers if header.startswith(LASSO)]
-    named, other = set(), []
     if trace is None:
         if headers:
-            other.append(f"reduce() prints {headers} and parse() finds no trace")
-        return sorted(named), other
+            return [], [f"reduce() prints {headers} and parse() finds no trace"]
+        return [], []
     if not headers:
         if len(trace.steps) == 1 and any(tlc_trace.INITIAL_MARKER in line for line in lines):
-            named.add("initial state")
-        else:
-            other.append(f"parse() finds {len(trace.steps)} states and reduce() prints none")
-        return sorted(named), other
+            return ["initial state"], []
+        return [], [f"parse() finds {len(trace.steps)} states and reduce() prints none"]
+    titles = [header for header in headers if not header.startswith(LASSO)]
     expected = [f"state {step.number}: {step.action}" for step in trace.steps]
     if titles != expected:
-        other.append(f"reduce() prints the states {titles} and parse() reads {expected}")
-        return sorted(named), other
+        return [], [f"reduce() prints the states {titles} and parse() reads {expected}"]
+    lassos = [header for header in headers if header.startswith(LASSO)]
+    named, other = set(), []
     walked = [values for title, values in tlc_trace.states(lines) if not title.startswith(LASSO)]
     previous = ()
     for step, values in zip(trace.steps, walked):
@@ -60,8 +59,14 @@ def differences(lines):
     if trace.lasso is None:
         if lassos:
             other.append(f"reduce() prints {lassos} and parse() finds no lasso")
-    elif len(lassos) != 1 or not re.match(rf"{LASSO} {trace.lasso.target}\b", lassos[0]) or trace.lasso.action not in lassos[0]:
-        other.append(f"reduce() prints {lassos} and parse() reads back to state {trace.lasso.target}: {trace.lasso.action}")
-    elif lassos[0] != f"{LASSO} {trace.lasso.target}" + (f": {trace.lasso.action}" if trace.lasso.action else ""):
+        return sorted(named), other
+    target, action = trace.lasso.target, trace.lasso.action
+    bare = f"{LASSO} {target}" + (f": {action}" if action else "")
+    # The lasso must be the one header after the last state.
+    if lassos != headers[-1:]:
+        other.append(f"reduce() prints the headers {headers} and parse() reads the lasso {bare!r} after the last state")
+    elif re.fullmatch(rf"{LASSO} {target}: <{re.escape(action)}(?:{LOCATION})?>", lassos[0]):
         named.add("lasso location")
+    elif lassos[0] != bare:
+        other.append(f"reduce() prints {lassos[0]!r} and parse() reads {bare!r}")
     return sorted(named), other
