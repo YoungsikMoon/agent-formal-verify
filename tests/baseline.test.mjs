@@ -696,6 +696,8 @@ test("an unreadable #[path] is reported on the line where its item starts", () =
   for (const [lib, line] of [
     ['mod proofs;\nfn f() {}\n#[path = "a\\x2e.rs"] mod p;\n', 3],
     ['mod proofs;\n\n/// The module.\n#[path = "a\\x2e.rs"]\nmod p;\n', 4],
+    ['﻿#![allow(dead_code)]\n#[path = "a\\x2e.rs"]\nmod p;\nmod proofs;\n', 2],
+    ['mod proofs;\nmod outer {\n    #![allow(dead_code)]\n    #[path = "a\\x2e.rs"]\n    mod p;\n}\n', 4],
   ]) {
     const dir = crate({ "lib.rs": lib, "proofs.rs": harness });
     const recorded = baseline(dir, "record", join(dir, "record.json"), join(dir, "proofs.rs"));
