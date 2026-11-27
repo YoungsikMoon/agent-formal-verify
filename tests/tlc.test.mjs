@@ -884,6 +884,34 @@ test("tlc.Runner without keep_results keeps no results, parses no trace and does
   assert.equal(kept.results[0].trace.steps.length, 4);
 });
 
+test("tlc.main without TLC_HTML_REPORT parses no trace and does not load the report module", () => {
+  const dir = fixture();
+  writeFileSync(join(dir, "One.tla"), "---- MODULE One ----\n====\n");
+  writeFileSync(join(dir, "One.matrix"), "spec One.tla\ncheck INVARIANTS Small\nrun bad | N=2\n");
+  writeFileSync(join(dir, "tools.jar"), "user supplied");
+  const java = fakeTlc(dir, `cat ${JSON.stringify(join(logs, "tlc-invariant.log"))}\nexit 12`);
+  const script = [
+    "import sys",
+    `sys.path.insert(0, ${JSON.stringify(scripts)})`,
+    "import tlc",
+    "def parse(lines):",
+    "    raise AssertionError('tlc_trace.parse ran without a report')",
+    "tlc.tlc_trace.parse = parse",
+    "sys.argv = ['tlc.py', sys.argv[1]]",
+    "status = tlc.main()",
+    "print('STATUS', status, 'tlc_report' in sys.modules)",
+  ].join("\n");
+  const result = spawnSync("python3", ["-B", "-c", script, join(dir, "One.matrix")], {
+    cwd: root,
+    encoding: "utf8",
+    env: { ...process.env, JAVA: java, TLC_JAR: join(dir, "tools.jar") },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  includes(result.stdout, "FAIL One bad: Error: Invariant");
+  includes(result.stdout, "--- state 1: Initial predicate");
+  assert.match(result.stdout, /\nSTATUS 1 False\n$/);
+});
+
 test("tlc.Runner captures constants, checks, duration_s, and traces across PASS, FAIL (invariant and liveness), and MISSING", () => {
   const dir = fixture();
   writeFileSync(join(dir, "One.tla"), "---- MODULE One ----\n====\n");
