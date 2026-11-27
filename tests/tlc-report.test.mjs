@@ -323,7 +323,8 @@ test("tlc_report.write_html replaces bytes of the matrix name that are not UTF-8
   ].join("\n");
   const result = runPython(script, outFile);
   assert.equal(result.status, 0, result.stderr);
-  const doc = readFileSync(outFile, "utf8");
+  // A strict decoder throws on any byte that is not UTF-8, which readFileSync would turn into U+FFFD itself.
+  const doc = new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(outFile));
   includes(doc, "<title>TLC Report — m\uFFFD.matrix</title>");
   includes(doc, "<h1>TLC Matrix Report: m\uFFFD.matrix</h1>");
 });
