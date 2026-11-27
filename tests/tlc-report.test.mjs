@@ -411,14 +411,13 @@ test("tlc-matrix.sh writes HTML report for mixed PASS, FAIL, and reach WITNESS w
   const rows = html.split("<tr>").slice(1).map((row) => row.slice(0, row.indexOf("</tr>")));
   const failRows = rows.filter((row) => row.includes("badge-fail") && row.includes('href="#trace-'));
   assert.equal(failRows.length, 2);
-  includes(failRows[0], "<td><code>N=2</code></td>");
-  includes(failRows[1], "<td><code>N=3</code></td>");
-  for (const [row, second] of [
-    [failRows[0], "Error: The behavior up to this point is:"],
-    [failRows[1], "Error: The following behavior constitutes a counter-example:"],
+  for (const [row, constants, errorLine] of [
+    [failRows[0], "<td><code>N=2</code></td>", "Error: The behavior up to this point is:"],
+    [failRows[1], "<td><code>N=3</code></td>", "Error: The following behavior constitutes a counter-example:"],
   ]) {
+    includes(row, constants);
     includes(row, "<summary>Output (");
-    includes(row, second);
+    includes(row, errorLine);
     includes(row, "--- state 1: Initial predicate");
   }
 });
