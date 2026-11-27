@@ -726,7 +726,7 @@ test("tlc_report inline script renderStep updates counter, header, diff, snapsho
     "import sys",
     `sys.path.insert(0, ${JSON.stringify(scripts)})`,
     "import tlc, tlc_report, tlc_trace",
-    "trace = tlc_trace.parse(sys.argv[1].split('\\n'))",
+    "trace = tlc_trace.parse(sys.argv[1].splitlines())",
     "results = [tlc.Result(tlc.Outcome.FAIL, 'One', 'stutter', detail='err', trace=trace)]",
     "print(tlc_report.render_html('One.matrix', results, 'SUMMARY'), end='')",
   ].join("\n");
