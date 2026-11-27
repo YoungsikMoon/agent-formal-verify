@@ -349,13 +349,14 @@ class KaniKind:
             if "compiled" in entry:
                 return [*lines, f"  FAIL {error}"], []
             return lines, [unchecked, f"  {error}"]
-        if names is None or "compiled" in entry:
+        if names is None or "compiled" in entry and not entry.get("partial"):
             return lines + problems, []
         return lines + problems, [unchecked]
 
     def valid(self, entry):
         compiled = entry.get("compiled", [])
-        return isinstance(compiled, list) and all(isinstance(name, str) for name in compiled)
+        return (isinstance(compiled, list) and all(isinstance(name, str) for name in compiled)
+                and isinstance(entry.get("partial", False), bool))
 
     def moved(self, entry, module, new, existing):
         surface, compiled = entry["surface"], entry.get("compiled")
@@ -363,13 +364,18 @@ class KaniKind:
             surface = renamed(surface, *module)
             compiled = compiled and list(renamed(dict.fromkeys(compiled), *module))
         surface = joined(surface, new, existing)
+        partial = compiled is None or entry.get("partial", False)
         if existing is not None:
-            # The merged entry holds Kani's list only when both are Kani entries checked against Kani at record.
-            checked = existing["kind"] == self.name and "compiled" in existing
-            compiled = [*existing["compiled"], *compiled] if checked and compiled is not None else None
+            # The merged list keeps the harnesses of each entry checked against Kani at record, and is partial when
+            # either entry was not checked.
+            other = existing.get("compiled") if existing["kind"] == self.name else None
+            partial = partial or other is None or existing.get("partial", False)
+            compiled = None if compiled is None and other is None else [*(other or []), *(compiled or [])]
         result = model_entry(self.name, surface)
         if compiled is not None:
             result["compiled"] = sorted(compiled)
+            if partial:
+                result["partial"] = True
         return result
 
 

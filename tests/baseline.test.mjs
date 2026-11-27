@@ -581,7 +581,7 @@ test("each harness that Kani compiles from a recorded file must be on a route th
   assert.equal(hiddenNow.status, 1);
   assert.equal(lines(hiddenNow)[0], `CHANGED ${missing.proofs}`);
   assert.ok(lines(hiddenNow)[1].startsWith(`  FAIL ${hiddenRoute}`), hiddenNow.stdout);
-  // move onto a file that was checked against Kani keeps the merged entry unchecked.
+  // move onto a file that was checked against Kani keeps the merged entry unchecked, with that file's harnesses.
   const other = join(missing.dir, "src/other.rs");
   writeFileSync(other, "#[kani::proof]\nfn b() {}\n");
   writeFileSync(join(missing.dir, "src/lib.rs"), '#[path = "proofs.rs"] mod readable;\nmod other;\n');
@@ -598,9 +598,14 @@ test("each harness that Kani compiles from a recorded file must be on a route th
   rmSync(missing.proofs);
   writeFileSync(join(missing.dir, "src/lib.rs"), "mod other;\n");
   assert.equal(baseline(missing.dir, "move", missing.record, missing.proofs, other).status, 0);
-  assert.equal(JSON.parse(readFileSync(missing.record, "utf8")).models[other].compiled, undefined);
+  const merged = JSON.parse(readFileSync(missing.record, "utf8")).models[other];
+  assert.deepEqual([merged.compiled, merged.partial], [["harness b"], true]);
   compiles(missing.dir, "src/other.rs", ["other::a", "other::b"]);
   assert.deepEqual(lines(baseline(missing.dir, "compare", missing.record)), [`NOT CHECKED ${other}`, notChecked, "SUMMARY 0 unchanged, 0 changed, 1 not checked"]);
+  compiles(missing.dir, "src/other.rs", ["other::a"]);
+  assert.deepEqual(lines(baseline(missing.dir, "compare", missing.record)), [`CHANGED ${other}`, "  not compiled harness b", notChecked, "SUMMARY 0 unchanged, 1 changed"]);
+  rmSync(join(missing.dir, "kani"), { recursive: true });
+  assert.match(lines(baseline(missing.dir, "compare", missing.record))[1], /^ {2}FAIL cannot ask Kani which harnesses it compiles in .*UNAVAILABLE Kani/);
 
   // A closure or a const _ block adds an anonymous segment to Kani's name, which is not a route.
   const closure = compiledCrate(["readable::f::{closure#0}::g", "readable::f::_::h"]);
