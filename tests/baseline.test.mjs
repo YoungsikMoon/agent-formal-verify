@@ -643,6 +643,25 @@ test("each route in the crate that the record cannot read is noted in the harnes
   assert.ok(notes.every((line) => line.startsWith(`  route not read: ${unread}/`)), notes.join("\n"));
   assert.equal(JSON.parse(readFileSync(unreadRecord, "utf8")).models[unreadProofs].surface["harness a"],
     'unread(lib.rs: include!(concat!(env!("OUT_DIR"), "/gen.rs")); lib.rs: mod p under a path it cannot read; other.rs: a file it cannot parse)');
+
+  // A mod that a macro builds, one in a function body, and an include! in a macro are noted too, each one apart.
+  const noted = (files, target, item) => {
+    const at = crate(files);
+    const result = baseline(at, "record", join(at, "record.json"), join(at, target));
+    assert.equal(result.status, 0, result.stdout);
+    return { at, value: JSON.parse(readFileSync(join(at, "record.json"), "utf8")).models[join(at, target)].surface[item] };
+  };
+  const built = 'macro_rules! declare { ($n:ident) => { #[cfg(feature = "slow")] mod $n; } }\ndeclare!(queue);\nfn main() {}\n';
+  assert.equal(noted({ "src/lib.rs": "pub mod queue;\n", "src/main.rs": built, "src/queue.rs": queue }, "src/queue.rs", "harness proofs::check_push").value, "unread(main.rs: mod $n in a macro or block)");
+  const inBody = 'fn main() {\n    #[cfg(feature = "slow")]\n    #[path = "queue.rs"]\n    mod queue;\n}\n';
+  assert.equal(noted({ "src/lib.rs": "pub mod queue;\n", "src/main.rs": inBody, "src/queue.rs": queue }, "src/queue.rs", "harness proofs::check_push").value, "unread(main.rs: mod queue in a macro or block)");
+  const included = 'mod proofs;\ncfg_if::cfg_if! { if #[cfg(kani)] { include!("extra.rs"); } }\n';
+  assert.equal(noted({ "lib.rs": included, "proofs.rs": harness }, "proofs.rs", "harness a").value, 'unread(lib.rs: include!("extra.rs") in a macro or block)');
+  const twice = 'mod proofs;\ncfg_if::cfg_if! { if #[cfg(unix)] { #[path = "unix.rs"] mod imp; } else { #[path = "windows.rs"] mod imp; } }\n';
+  const both = noted({ "lib.rs": twice, "proofs.rs": harness }, "proofs.rs", "harness a");
+  assert.equal(both.value, "unread(lib.rs: mod imp in a macro or block; lib.rs: mod imp in a macro or block)");
+  edit(join(both.at, "lib.rs"), ' else { #[path = "windows.rs"] mod imp; }', "");
+  assertChanged(compared({ dir: both.at, record: join(both.at, "record.json"), rust: join(both.at, "proofs.rs") }), "rust", "    new: unread(lib.rs: mod imp in a macro or block)");
 });
 
 test("the route reader follows out-of-line mod declarations from the crate roots and reads the cfg guards on each", () => {

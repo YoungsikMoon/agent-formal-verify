@@ -212,21 +212,25 @@ class RustFile(NamedTuple):
     modules: list
     declarations: list
     includes: list
-    # The `mod <name>;` declarations inside macros and blocks such as `const _: () = { ... }`, which the route reader
-    # does not follow.
+    # Each (position, route) that the route reader does not follow: a `mod <name>;` or `include!(...)` inside a macro,
+    # a function body or another block such as `const _: () = { ... }`.
     hidden: list
 
 
-HIDDEN_DECLARATION = re.compile(r"\bmod\s+((?:r#)?\w+)\s*;")
+HIDDEN_ROUTE = re.compile(r"\bmod\s+(?:\$\w+|(?:r#)?\w+)\s*;|\binclude\s*!\s*[(\[{]")
 
 
 def parse_rust(path):
     source = rust_masks(path.read_text(encoding="utf-8"))
     mask = source.without_comments_or_strings
-    _, modules, opaque, declarations, includes = rust_functions(mask)
-    hidden = [RustFunction(match[1], match.start(), match.start(), match.end() - 1, match.end())
-              for start, end in opaque for match in HIDDEN_DECLARATION.finditer(mask, start, end)]
-    return RustFile(source, modules, declarations, includes, hidden)
+    functions, modules, opaque, declarations, includes = rust_functions(mask)
+    hidden = {}
+    for start, end in opaque + [(function.body, function.end) for function in functions]:
+        for match in HIDDEN_ROUTE.finditer(mask, start, end):
+            stop = match.end() - 1 if match[0].startswith("mod") else after_closing(mask, match.end() - 1)
+            route = rust_masks(source.uncommented[match.start():stop])
+            hidden[match.start()] = collapse(route.uncommented, route.literals)
+    return RustFile(source, modules, declarations, includes, sorted(hidden.items()))
 
 
 def enclosing_modules(parsed, item):
@@ -346,13 +350,13 @@ class RouteReader:
     def module_tree(self, roots):
         """Return the module declarations that lead to each file the crate roots reach, as {file: {(declarer,
         declaration)}}, and two Unread lists: each reached file, declaration and `include!` that could not be read, and
-        each `mod <name>;` inside a macro or a block, such as `const _: () = { ... }`, in a reached file.
+        each route in RustFile.hidden of a reached file.
 
         An `include!("...")` item outside function bodies leads to the file it names, relative to the including file,
         which declares modules as a file that owns its directory does, whatever inline modules hold the include.
         """
         if roots not in self.trees:
-            edges, broken, hidden, seen = {}, [], [], set()
+            edges, broken, hidden, seen, scanned = {}, [], [], set(), set()
             work = [(root, True, next((folder for folder in root.parents if (folder / "Cargo.toml").is_file()), None)) for root in roots]
             while work:
                 file, owner, package = work.pop()
@@ -364,11 +368,10 @@ class RouteReader:
                 except ValueError as error:
                     broken.append(Unread(file, "a file it cannot parse", f"{file}: {error}"))
                     continue
-                for declaration in parsed.hidden:
-                    enclosing = enclosing_modules(parsed, declaration)
-                    name = "::".join([module.name for module in enclosing[-1:]] + [declaration.name])
-                    line = parsed.source.without_comments_or_strings.count("\n", 0, declaration.start) + 1
-                    hidden.append(Unread(file, f"mod {name} in a macro or block", f"{file}:{line}: mod {name} is inside a macro or block"))
+                for position, route in [] if file in scanned else parsed.hidden:
+                    line = parsed.source.without_comments_or_strings.count("\n", 0, position) + 1
+                    hidden.append(Unread(file, f"{route} in a macro or block", f"{file}:{line}: {route} is inside a macro or block"))
+                scanned.add(file)
                 for declaration in parsed.declarations:
                     try:
                         targets = list(module_files(file, owner, parsed, declaration))
@@ -404,7 +407,8 @@ class RouteReader:
         if (crates := crate_roots(path)) is None:
             return []
         _, broken, hidden = self.module_tree(crates[0])
-        return sorted(broken + hidden, key=lambda entry: entry.message)
+        # The tree reads a file once for each way it is reached, so a broken entry can repeat.
+        return sorted([*{entry.message: entry for entry in broken}.values(), *hidden], key=lambda entry: entry.message)
 
     def routes(self, path):
         """Return the routes that lead to path from its crate roots, sorted. A crate root is one route without guards,
@@ -463,7 +467,7 @@ def route_label(path, routes):
 def unread_label(path, unread):
     """Return the record's note for the Unread routes that may lead to path: `unread(...)` with each as its file's path
     relative to path's directory, a colon and the route, sorted and separated by `; `, or "" for none."""
-    found = sorted({f"{os.path.relpath(entry.file, path.parent)}: {entry.route}" for entry in unread})
+    found = sorted(f"{os.path.relpath(entry.file, path.parent)}: {entry.route}" for entry in unread)
     return f"unread({'; '.join(found)})" if found else ""
 
 
