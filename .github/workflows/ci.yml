@@ -62,18 +62,7 @@ jobs:
           cd "$RUNNER_TEMP"
           # The release's y.tab.c predates its parse.y patches, so make regenerates it with bison.
           { apt-get update && apt-get install -y --no-install-recommends bison=2:3.8.2+dfsg-1+b1; } > apt.log 2>&1 || { tail -n 40 apt.log; exit 1; }
-          mkdir -p "$BASH_TARBALL_DIR"
-          cd "$BASH_TARBALL_DIR"
-          check() {
-            echo "$BASH_TARBALL_SHA256  bash-3.2.57.tar.gz" | sha256sum -c -
-          }
-          # ftpmirror.gnu.org redirects to a nearby mirror; ftp.gnu.org is the fallback when it fails or serves other bytes.
-          fetch() {
-            curl -fL --no-progress-meter --connect-timeout 30 --retry 3 -o bash-3.2.57.tar.gz "$1" && check
-          }
-          # A tarball the cache restored needs neither host, so a gnu.org outage fails only a run whose cache missed.
-          { [ -f bash-3.2.57.tar.gz ] && check; } || fetch https://ftpmirror.gnu.org/bash/bash-3.2.57.tar.gz || fetch https://ftp.gnu.org/gnu/bash/bash-3.2.57.tar.gz
-          cd "$RUNNER_TEMP"
+          bash "$GITHUB_WORKSPACE/.github/fetch-bash.sh"
           tar -xzf "$BASH_TARBALL_DIR/bash-3.2.57.tar.gz"
           cd bash-3.2.57
           ./configure --without-bash-malloc --disable-nls > configure.log 2>&1 || { tail -n 40 configure.log; exit 1; }
