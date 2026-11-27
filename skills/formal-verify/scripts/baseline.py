@@ -347,8 +347,8 @@ class KaniKind:
     def changes(self, entry, path):
         surface = kani_surface(path, self.reader)
         lines = differences(entry["surface"], surface, ("assume", "stub"))
-        if may_omit_generator_types(entry) and any(re.match(r"assume kani\s*::\s*any_where\b", key) for key in surface):
-            lines.insert(0, "  previous baseline omitted any_where input types; review the original generator and record this file again")
+        if may_omit_generator_types(entry):
+            lines.insert(0, "  previous baseline stored assumptions without distinguishing any_where input types; review the original assumptions and record this file again")
         unchecked = ("  not checked against Kani at record, so compare cannot tell a harness that "
                      "stopped compiling from one that never compiled")
         try:
