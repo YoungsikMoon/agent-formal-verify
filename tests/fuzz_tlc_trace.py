@@ -1,6 +1,6 @@
 # Copyright (c) 2026 Michael Denyer
 # SPDX-License-Identifier: GPL-3.0-only
-"""Check that reducing a generated TLC trace reports exactly the state changes."""
+"""Check that reducing a generated TLC trace reports exactly the state changes, and that parse() reads the same trace."""
 import sys
 from pathlib import Path
 
@@ -9,6 +9,7 @@ import atheris
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "skills/formal-verify/scripts"))
 with atheris.instrument_imports():
     import tlc_trace
+import tlc_trace_agreement
 
 
 def check_trace(data):
@@ -29,6 +30,7 @@ def check_trace(data):
         previous = values
 
     assert tlc_trace.reduce(lines) == (expected or None)
+    assert tlc_trace_agreement.differences(lines) == ([], [])
 
 
 if __name__ == "__main__":
