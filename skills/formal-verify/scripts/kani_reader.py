@@ -212,7 +212,8 @@ class RustFile(NamedTuple):
     modules: list
     declarations: list
     includes: list
-    # The `mod <name>;` declarations inside macros, which the route reader does not follow.
+    # The `mod <name>;` declarations inside macros and blocks such as `const _: () = { ... }`, which the route reader
+    # does not follow.
     hidden: list
 
 
@@ -344,8 +345,8 @@ class RouteReader:
 
     def module_tree(self, roots):
         """Return the module declarations that lead to each file the crate roots reach, as {file: {(declarer,
-        declaration)}}, each reached file, declaration and `include!` that could not be read, and each `mod <name>;`
-        inside a macro in a reached file, the last two as Unread lists.
+        declaration)}}, and two Unread lists: each reached file, declaration and `include!` that could not be read, and
+        each `mod <name>;` inside a macro or a block, such as `const _: () = { ... }`, in a reached file.
 
         An `include!("...")` item outside function bodies leads to the file it names, relative to the including file,
         which declares modules as a file that owns its directory does, whatever inline modules hold the include.
@@ -367,7 +368,7 @@ class RouteReader:
                     enclosing = enclosing_modules(parsed, declaration)
                     name = "::".join([module.name for module in enclosing[-1:]] + [declaration.name])
                     line = parsed.source.without_comments_or_strings.count("\n", 0, declaration.start) + 1
-                    hidden.append(Unread(file, f"mod {name} in a macro", f"{file}:{line}: mod {name} is inside a macro"))
+                    hidden.append(Unread(file, f"mod {name} in a macro or block", f"{file}:{line}: mod {name} is inside a macro or block"))
                 for declaration in parsed.declarations:
                     try:
                         targets = list(module_files(file, owner, parsed, declaration))
