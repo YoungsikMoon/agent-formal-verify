@@ -195,7 +195,13 @@ def module_paths(source, item, file):
         for setting in PATH_ATTRIBUTE.finditer(attribute.without_comments_or_strings):
             value = string_value(next((attribute.uncommented[begin:end] for begin, end in attribute.literals if begin == setting.end()), ""))
             if value is None:
-                line = source.without_comments_or_strings.count("\n", 0, item.start) + 1
+                # The item starts at the boundary after the previous item, or at the start of the file or a module
+                # body, so count from its own first token, after any inner attributes.
+                mask, first = source.without_comments_or_strings, item.start
+                while inner := INNER_ATTRIBUTE.match(mask, first):
+                    first = after_closing(mask, inner.end() - 1)
+                first = re.compile(r"[\s﻿]*").match(mask, first).end()
+                line = mask.count("\n", 0, first) + 1
                 raise ValueError(f"{file}:{line}: cannot read the path in '{collapse(attribute.uncommented, attribute.literals)}'; write it as a string without escapes")
             (paths if compact.startswith("path=") else conditional).append(value)
     return paths, conditional

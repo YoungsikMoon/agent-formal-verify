@@ -715,6 +715,20 @@ test("each route in the crate that the record cannot read is noted in the harnes
   assertChanged(compared({ dir: both.at, record: join(both.at, "record.json"), rust: join(both.at, "proofs.rs") }), "rust", "    new: unread(lib.rs: mod imp in a macro or block)");
 });
 
+test("an unreadable #[path] is reported on the line where its item starts", () => {
+  for (const [lib, line] of [
+    ['mod proofs;\nfn f() {}\n#[path = "a\\x2e.rs"] mod p;\n', 3],
+    ['mod proofs;\n\n/// The module.\n#[path = "a\\x2e.rs"]\nmod p;\n', 4],
+    ['﻿#![allow(dead_code)]\n#[path = "a\\x2e.rs"]\nmod p;\nmod proofs;\n', 2],
+    ['mod proofs;\nmod outer {\n    #![allow(dead_code)]\n    #[path = "a\\x2e.rs"]\n    mod p;\n}\n', 4],
+  ]) {
+    const dir = crate({ "lib.rs": lib, "proofs.rs": harness });
+    const recorded = baseline(dir, "record", join(dir, "record.json"), join(dir, "proofs.rs"));
+    assert.equal(recorded.status, 0, recorded.stdout);
+    assert.deepEqual(lines(recorded).slice(1), [`  route not read: ${join(dir, "lib.rs")}:${line}: cannot read the path in 'path = "a\\x2e.rs"'; write it as a string without escapes`]);
+  }
+});
+
 test("the route reader follows out-of-line mod declarations from the crate roots and reads the cfg guards on each", () => {
   const nested = {
     "src/lib.rs": "#![cfg(unix)]\n#[cfg(a)]\nmod verify;\n#[cfg(d)] pub mod checks;\n",
