@@ -245,6 +245,19 @@ for (const outcome of ["success", "failure"]) {
   });
 }
 
+test("Rust mutations stage a workspace with its temporary root inside the crate", () => {
+  const { dir, name } = kaniFixture("failure", { requiredCrateFiles: { "scratch/input": "keep" } });
+  const mutations = rustMutation(dir, name);
+  const scratch = join(dir, "scratch");
+  mkdirSync(scratch);
+  writeFileSync(join(scratch, "input"), "keep");
+  symlinkSync(scratch, join(dir, "scratch-alias"));
+  const result = runKani(dir, "mutate.py", [mutations], { TMPDIR: scratch });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  includes(result.stdout, "DETECTED guard");
+  assert.deepEqual(readdirSync(scratch), ["input"]);
+});
+
 test("Rust mutations copy a crate that holds a dangling symlink, such as an editor lock file", () => {
   const { dir, name } = kaniFixture("failure");
   const mutations = rustMutation(dir, name);
