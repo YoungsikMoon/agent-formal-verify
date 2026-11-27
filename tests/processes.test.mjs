@@ -514,7 +514,8 @@ test("SIGTERM, SIGHUP and SIGKILL sent to the runner process group still stop TL
     await new Promise((resolve) => {
       const child = spawn("bash", [join(scripts, "tlc-matrix.sh"), join(dir, "One.matrix")], {
         detached: true,
-        env: { ...process.env, JAVA: java, TLC_JAR: join(dir, "tools.jar"), TASK_PID_FILE: pidFile, FORMAL_MIN_FREE_GIB: "0" },
+        // SIGKILL leaves the runner's work directory behind, so it goes in the fixture that removeFixtures deletes.
+        env: { ...process.env, JAVA: java, TLC_JAR: join(dir, "tools.jar"), TMPDIR: dir, TASK_PID_FILE: pidFile, FORMAL_MIN_FREE_GIB: "0" },
       });
       const timer = setInterval(() => {
         if (existsSync(pidFile) && readFileSync(pidFile, "utf8").endsWith("\n")) {
