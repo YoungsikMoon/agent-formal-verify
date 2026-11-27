@@ -315,6 +315,11 @@ class TlaKind:
         return model_entry(self.name, joined(entry["surface"], new, existing))
 
 
+def may_omit_generator_types(entry):
+    # Older entries used the same keys for plain assumptions and generator predicates.
+    return not entry.get("generator_types") and any(key.startswith("assume ") for key in entry["surface"])
+
+
 class KaniKind:
     """Record, compare and move the harnesses, assumptions, covers and stubs of a Kani file, checked against what Kani compiles."""
 
@@ -326,6 +331,7 @@ class KaniKind:
     def entry(self, path):
         surface = kani_surface(path, self.reader)
         entry = model_entry(self.name, surface)
+        entry["generator_types"] = True
         notes = [f"  route not read: {route.message}" for route in self.reader.unread(path)]
         # A harness that no longer compiles is recorded from its text alone; compare asks Kani again.
         try:
@@ -341,6 +347,8 @@ class KaniKind:
     def changes(self, entry, path):
         surface = kani_surface(path, self.reader)
         lines = differences(entry["surface"], surface, ("assume", "stub"))
+        if may_omit_generator_types(entry) and any(re.match(r"assume kani\s*::\s*any_where\b", key) for key in surface):
+            lines.insert(0, "  previous baseline omitted any_where input types; review the original generator and record this file again")
         unchecked = ("  not checked against Kani at record, so compare cannot tell a harness that "
                      "stopped compiling from one that never compiled")
         try:
@@ -361,7 +369,7 @@ class KaniKind:
     def valid(self, entry):
         compiled = entry.get("compiled", [])
         return (isinstance(compiled, list) and all(isinstance(name, str) for name in compiled)
-                and isinstance(entry.get("partial", False), bool))
+                and isinstance(entry.get("partial", False), bool) and isinstance(entry.get("generator_types", False), bool))
 
     def moved(self, entry, module, new, existing):
         surface, compiled = entry["surface"], entry.get("compiled")
@@ -377,6 +385,8 @@ class KaniKind:
             partial = partial or other is None or existing.get("partial", False)
             compiled = None if compiled is None and other is None else [*(other or []), *(compiled or [])]
         result = model_entry(self.name, surface)
+        if not any(may_omit_generator_types(part) for part in (entry, existing) if part is not None):
+            result["generator_types"] = True
         if compiled is not None:
             result["compiled"] = sorted(compiled)
             if partial:
