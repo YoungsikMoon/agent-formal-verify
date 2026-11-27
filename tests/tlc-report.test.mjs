@@ -125,7 +125,7 @@ test("tlc_report.to_mermaid renders multi-step and initial-state reach witnesses
     "/\\ c = a --> b\n       more",
     "State 2: <Send({m}): x>",
     `/\\ a = ${"{".repeat(40)}`,
-    '/\\ b = "#1; x # y"',
+    '/\\ b = "#1; &amp; x # y"',
     "/\\ c = a --> b\n       more",
   ].join("\n");
   const special = callMermaidText(specialLog, { title: 'Check "x"; a --> b\nline2' });
@@ -136,7 +136,7 @@ test("tlc_report.to_mermaid renders multi-step and initial-state reach witnesses
   const labels = lines.filter((line) => line.startsWith('state "')).map((line) => line.slice(7, line.lastIndexOf('" as S')));
   assert.deepEqual(labels.map(rendered), [
     'State 1: Init | a=<< 1, "two" >>, b=[k |-> {1, 2}; m: 3], (+1 more)',
-    `State 2: Send({m}): x | a=${"{".repeat(29)}..., b="#1; x # y"`,
+    `State 2: Send({m}): x | a=${"{".repeat(29)}..., b="#1; &amp; x # y"`,
   ]);
   const transition = lines.find((line) => line.startsWith("S1 --> S2 : "));
   assert.equal(rendered(transition), "S1 --> S2 : Send({m}): x");
@@ -149,7 +149,7 @@ test("tlc_report.to_mermaid renders multi-step and initial-state reach witnesses
   ];
   for (const text of traceText) {
     const bare = text.replace(/#\d+;/g, "");
-    for (const character of ['"', "<", ">", "{", "}", ":", ";", "#", "\n"]) {
+    for (const character of ['"', "<", ">", "{", "}", ":", ";", "#", "&"]) {
       excludes(bare, character);
     }
   }

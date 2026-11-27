@@ -28,7 +28,7 @@ def _truncate(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 3] + "..."
 
 
-_MERMAID_SPECIAL = re.compile(r'[#"<>:;{}]')
+_MERMAID_SPECIAL = re.compile(r'[&#"<>:;{}]')
 
 
 def _sanitize_mermaid(text: str) -> str:
