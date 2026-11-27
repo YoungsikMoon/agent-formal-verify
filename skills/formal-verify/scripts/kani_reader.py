@@ -98,7 +98,7 @@ MACROS = (
     ("stub", re.compile(KANI_ATTRIBUTE + r"stub\s*\(")),
 )
 PROOF = re.compile(KANI_ATTRIBUTE + r"proof(?:_for_contract\s*\([^)]*\))?\s*\)?\s*\]")
-HARNESS_ATTRIBUTE = re.compile(KANI_ATTRIBUTE + r"(should_panic|unwind\s*\([^()]*\))\s*\)?\s*\]")
+HARNESS_ATTRIBUTE = re.compile(r"kani::(?:should_panic(?:\(\)|\[\]|\{\})?|unwind(?:\([^()]*\)|\[[^\[\]]*\]|\{[^{}]*\}))")
 KANI_TOKEN = re.compile(r"\bkani\s*::\s*(?:assume|any_where|cover|stub|proof|should_panic|unwind)\w*\b")
 ATTRIBUTE = re.compile(r"#\s*(!\s*)?\[")
 INNER_ATTRIBUTE = re.compile(r"[\s\ufeff]*#\s*!\s*\[")
@@ -126,6 +126,30 @@ def outer_attributes(source, start, keyword):
         start = after_closing(mask, opener)
         if not attribute[1]:
             yield rust_masks(source.uncommented[opener + 1:start - 1])
+
+
+CFG_ATTR_KANI = re.compile(r"\s*cfg_attr\s*\(\s*kani\s*,")
+
+
+def applied_attributes(mask):
+    """Yield the span of each attribute that an outer attribute in mask applies when Kani compiles it: the whole
+    attribute, or each argument after the condition of a `#[cfg_attr(kani, ...)]`."""
+    for attribute in ATTRIBUTE.finditer(mask):
+        if attribute[1]:
+            continue
+        opener = attribute.end() - 1
+        close = after_closing(mask, opener) - 1
+        if (condition := CFG_ATTR_KANI.match(mask, opener + 1, close)) is None:
+            yield opener + 1, close
+            continue
+        start, depth = condition.end(), 0
+        for i in range(start, close):
+            depth += (mask[i] in "([{") - (mask[i] in ")]}")
+            if depth < 0 or mask[i] == "," and not depth:
+                yield start, i
+                if depth < 0:
+                    break
+                start = i + 1
 
 
 def cfg_guards(source, items):
@@ -468,11 +492,12 @@ def kani_surface(path, reader):
             argument = rust_masks(text[match.end():end - 1])
             owner = owner_at(match.start(), attribute=kind == "stub").name
             spans.append((match.start(), f"{kind} {collapse(argument.uncommented, argument.literals)} in {owner}", ""))
-    # Kani rejects these attributes on a function without #[kani::proof], so only a harness's are recorded.
+    # Kani refuses these attributes on a function that is not a harness, so only a harness's are recorded.
     attributes = {}
-    for match in HARNESS_ATTRIBUTE.finditer(mask):
-        read.append(match.span())
-        attributes.setdefault(owner_at(match.start(), attribute=True), []).append("kani::" + re.sub(r"\s+", "", match[1]))
+    for start, end in applied_attributes(mask):
+        if HARNESS_ATTRIBUTE.fullmatch(item := re.sub(r"\s+", "", mask[start:end])):
+            read.append((start, end))
+            attributes.setdefault(owner_at(start, attribute=True), []).append(item)
     for match in PROOF.finditer(mask):
         read.append(match.span())
         harness = owner_at(match.start(), attribute=True)
