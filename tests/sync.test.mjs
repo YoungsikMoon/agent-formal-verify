@@ -228,7 +228,7 @@ test("sync reports a name as missing when only extensionless documents and data 
   git(dir, "init", "-b", "main");
   const docs = ["README", "CHANGELOG", ".github/CODEOWNERS", "docs/queue.tex"];
   const data = ["Makefile", ".github/workflows/ci.yml", "docs/queue.html", "notes/queue.ipynb", "docs/api.json"];
-  const read = commit(dir, { "src/queue.c": "int claim(void);\nint drain(void);\n", ...Object.fromEntries([...docs, ...data].map((doc) => [doc, "drain empties the queue\n"])) }, "queue");
+  const read = commit(dir, { "src/queue.c": "int claim(void);\nint drain(void);\n", ...Object.fromEntries([...docs, ...data].map((doc) => [doc, "claim and drain the queue\n"])) }, "queue");
   commit(dir, { "tla/Queue.tla": `(* Source read at ${read} *)\n` }, "model");
   commit(dir, { "src/queue.c": "int claim(void);\n" }, "remove drain");
   const removed = git(dir, "rev-parse", "--short", "HEAD");
@@ -237,6 +237,10 @@ test("sync reports a name as missing when only extensionless documents and data 
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.deepEqual(lines(result.stdout, "PATH"), [...data, "src/queue.c"].sort().map((path) => `PATH ${path}`));
   assert.deepEqual(lines(result.stdout, "MISSING"), [`MISSING drain: ${removed}`]);
+
+  const reversed = sync(dir, ["tla/Queue.tla", "--source", "src/queue.c", "--name", "drain", "--name", "claim"]);
+  assert.equal(reversed.status, 0, reversed.stderr);
+  assert.equal(reversed.stdout, result.stdout);
 
   // An extensionless file is searched when a source has no extension either.
   const tool = commit(dir, { "bin/tool": "drain() { :; }\n" }, "tool");
