@@ -93,7 +93,7 @@ def rust_functions(mask):
 KANI_ATTRIBUTE = r"#\s*\[\s*(?:cfg_attr\s*\(\s*kani\s*,\s*)?kani\s*::\s*"
 MACROS = (
     ("assume", re.compile(r"\bkani\s*::\s*assume\s*\(")),
-    ("assume", re.compile(r"\bkani\s*::\s*any_where\s*(?:::\s*<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*)?\(")),
+    ("any_where", re.compile(r"\bkani\s*::\s*any_where\s*(?:::\s*<[^<>]*(?:<[^<>]*>[^<>]*)*>\s*)?\(")),
     ("cover", re.compile(r"\bkani\s*::\s*cover\s*!\s*\(")),
     ("stub", re.compile(KANI_ATTRIBUTE + r"stub\s*\(")),
 )
@@ -500,9 +500,14 @@ def kani_surface(path, reader):
         for match in pattern.finditer(mask):
             end = after_closing(mask, match.end() - 1)
             read.append((match.start(), end))
-            argument = rust_masks(text[match.end():end - 1])
+            # The generator's explicit type arguments constrain its domain alongside its predicate.
+            if kind == "any_where":
+                item_kind, expression = "assume", text[match.start():end]
+            else:
+                item_kind, expression = kind, text[match.end():end - 1]
+            argument = rust_masks(expression)
             owner = owner_at(match.start(), attribute=kind == "stub").name
-            spans.append((match.start(), f"{kind} {collapse(argument.uncommented, argument.literals)} in {owner}", ""))
+            spans.append((match.start(), f"{item_kind} {collapse(argument.uncommented, argument.literals)} in {owner}", ""))
     # Kani refuses these attributes on a function that is not a harness, so only a harness's are recorded.
     attributes = {}
     for start, end in applied_attributes(mask):
