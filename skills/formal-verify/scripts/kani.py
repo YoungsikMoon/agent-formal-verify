@@ -90,6 +90,8 @@ class CrateSources:
         """Copy local packages in their relative layout, omitting Cargo's build directories."""
         anchor = Path(os.path.commonpath(self.roots))
         work = work.resolve()
+        # Other mutations can stage into the same workspace-local temporary root.
+        (work / "CACHEDIR.TAG").write_text("Signature: 8a477f597d28d172789f06886806bc55\n", encoding="ascii")
         destination = work / "source"
 
         def ignore(directory, names):
