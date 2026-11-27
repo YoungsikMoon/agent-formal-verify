@@ -55,7 +55,6 @@ sys.dont_write_bytecode = True
 import processes
 import runner
 import storage
-import tlc_report
 import tlc_trace
 
 CHECK_KINDS = ("INVARIANT", "INVARIANTS", "PROPERTY", "PROPERTIES")
@@ -506,8 +505,11 @@ def reduced_trace(log):
     return lines if lines is not None else [line for line in log.split("\n") if line.strip()][-40:]
 
 
-def run_task(checker, matrix_dir, task, work, source=None):
-    """Execute a resolved matrix task, optionally replacing its spec in the private run directory."""
+def run_task(checker, matrix_dir, task, work, source=None, traces=False):
+    """Execute a resolved matrix task, optionally replacing its spec in the private run directory.
+
+    With traces, a FAIL or WITNESS result holds the parsed trace for the HTML report.
+    """
     spec, run = task.spec, task.run
     operator = task.reach.operator if task.reach else ""
     name = Path(spec).name.removesuffix(".tla")
@@ -535,7 +537,7 @@ def run_task(checker, matrix_dir, task, work, source=None):
             )
             elapsed = time.monotonic() - start
             shutil.rmtree(directory / "states", ignore_errors=True)
-            result = ordinary(name, run, status, log, checker.limit if timed_out else None)
+            result = ordinary(name, run, status, log, checker.limit if timed_out else None, traces)
             return replace(result, constants=run_constants, checks=run_checks, duration_s=elapsed)
         wrapper = f"Reach{uuid.uuid4().hex}"
         invariant = f"{wrapper}Negated"
@@ -548,14 +550,14 @@ def run_task(checker, matrix_dir, task, work, source=None):
             reach=True, workers=reach_workers, progress_label=f"{name} reach {operator} {run.label}",
         )
         elapsed = time.monotonic() - start
-        result = witness(name, run, operator, invariant, status, log, checker.limit if timed_out else None)
+        result = witness(name, run, operator, invariant, status, log, checker.limit if timed_out else None, traces)
         return replace(result, constants=run_constants, checks=run_checks, duration_s=elapsed)
     finally:
         shutil.rmtree(directory, ignore_errors=True)
 
 
 
-def ordinary(name, run, status, log, timeout_limit=None):
+def ordinary(name, run, status, log, timeout_limit=None, traces=False):
     if timeout_limit:
         tail = tuple(line for line in log.split("\n") if line.strip())[-10:]
         return Result(Outcome.FAIL, name, run.label,
@@ -567,10 +569,10 @@ def ordinary(name, run, status, log, timeout_limit=None):
     errors = [line for line in log.split("\n") if line.startswith("Error:")]
     first = errors[0] if errors else ""
     return Result(Outcome.FAIL, name, run.label, detail=first, lines=(*errors[1:5], *reduced_trace(log)),
-                  violation=violation(first), trace=tlc_trace.parse(re.split(r"\r\n|\r|\n", log)))
+                  violation=violation(first), trace=tlc_trace.parse(re.split(r"\r\n|\r|\n", log)) if traces else None)
 
 
-def witness(name, run, operator, invariant, status, log, timeout_limit=None):
+def witness(name, run, operator, invariant, status, log, timeout_limit=None, traces=False):
     if timeout_limit:
         tail = tuple(line for line in log.split("\n") if line.strip())[-10:]
         return Result(Outcome.INCOMPLETE, name, run.label, operator,
@@ -583,7 +585,7 @@ def witness(name, run, operator, invariant, status, log, timeout_limit=None):
         length = sum(1 for line in lines if re.match(r"State [0-9]+:", line))
     if length:
         return Result(Outcome.WITNESS, name, run.label, operator, f"{length} states ({length - 1} transitions)",
-                      trace=tlc_trace.parse(re.split(r"\r\n|\r|\n", log)))
+                      trace=tlc_trace.parse(re.split(r"\r\n|\r|\n", log)) if traces else None)
     if status == 0 and "No error has been found" in log:
         return Result(Outcome.UNREACHED, name, run.label, operator)
     return Result(Outcome.INCOMPLETE, name, run.label, operator, lines=tuple(log.removesuffix("\n").split("\n")) if log else ())
@@ -592,14 +594,16 @@ def witness(name, run, operator, invariant, status, log, timeout_limit=None):
 class Runner:
     """Run the selected tasks and report each result to emit."""
 
-    def __init__(self, tlc, matrix_dir, only, emit, work):
+    def __init__(self, tlc, matrix_dir, only, emit, work, keep_results=False):
         self.tlc, self.matrix_dir, self.only, self.emit, self.work = tlc, matrix_dir, only, emit, work
         self.runs_total = self.passed = self.states = self.reach_total = self.reached = 0
         self.failed = False
-        self.results = []
+        # Only the HTML report reads the results and their traces.
+        self.results = [] if keep_results else None
 
     def report(self, result):
-        self.results.append(result)
+        if self.results is not None:
+            self.results.append(result)
         self.failed |= result.outcome not in (Outcome.PASS, Outcome.WITNESS)
         self.emit(result)
 
@@ -614,7 +618,7 @@ class Runner:
             self.reach_total += 1
         else:
             self.runs_total += 1
-        result = run_task(self.tlc, self.matrix_dir, task, self.work)
+        result = run_task(self.tlc, self.matrix_dir, task, self.work, traces=self.results is not None)
         if result.outcome is Outcome.PASS:
             self.passed += 1
             self.states += result.states
@@ -676,7 +680,8 @@ def main():
         return 1
     tlc = Tlc()
     with tempfile.TemporaryDirectory(dir=storage.ensure_temp_root()) as work:
-        matrix_runner = Runner(tlc, Path(matrix).resolve().parent, only, lambda result: print("\n".join(render(result)), flush=True), Path(work))
+        matrix_runner = Runner(tlc, Path(matrix).resolve().parent, only, lambda result: print("\n".join(render(result)), flush=True), Path(work),
+                               keep_results=report_path is not None)
         for task in MatrixPlan(matrix):
             matrix_runner.check(task)
     if matrix_runner.runs_total == 0:
@@ -689,6 +694,8 @@ def main():
     summary_line = f"{summary}, {matrix_runner.states} distinct states in total"
     print(summary_line)
     if report_path is not None:
+        import tlc_report
+
         try:
             tlc_report.write_html(report_path, Path(matrix).name, matrix_runner.results, summary_line, only=only)
         except OSError as error:
