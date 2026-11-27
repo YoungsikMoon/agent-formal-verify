@@ -869,6 +869,41 @@ test("an added Kani stub is changed", () => {
   assertChanged(outcome, "rust", "added stub consume, claim");
 });
 
+test("adding, removing or changing a harness's should_panic or unwind attribute is changed", () => {
+  const unwind = "    #[kani::unwind(2)]\n    fn claim_keeps_invariant";
+  const edits = [
+    [unwind.replace("(2)", "(1)"), "    old: kani::unwind(2)", "    new: kani::unwind(1)"],
+    ["    fn claim_keeps_invariant", "    old: kani::unwind(2)", "    new: "],
+    [`    #[kani::should_panic]\n${unwind}`, "    old: kani::unwind(2)", "    new: kani::should_panic kani::unwind(2)"],
+  ];
+  for (const [to, ...values] of edits) {
+    const outcome = recordedThenEdited(null, "rust", rust(unwind, to));
+    assertChanged(outcome, "rust", "changed harness proofs::claim_keeps_invariant");
+    assert.deepEqual(outcome.out.slice(2, 4), values, to);
+  }
+  const removed = recordedThenEdited(rust(unwind, `    #[cfg_attr(kani, kani::should_panic)]\n${unwind}`), "rust", rust("    #[cfg_attr(kani, kani::should_panic)]\n", ""));
+  assertChanged(removed, "rust", "    old: kani::should_panic kani::unwind(2)");
+  assertUnchanged(recordedThenEdited(null, "rust", rust(unwind, unwind.replace("#[kani::unwind(2)]", "#[cfg_attr(kani, kani::unwind( 2 ))]"))), "rust");
+  // Kani also reads either attribute as any argument of cfg_attr(kani, ...), and with any delimiters.
+  const surface = (form) => {
+    const files = models();
+    edit(files.rust, unwind, unwind.replace("#[kani::unwind(2)]", form));
+    const result = baseline(files.dir, "record", files.record, files.rust);
+    assert.equal(result.status, 0, result.stdout);
+    return JSON.parse(readFileSync(files.record, "utf8")).models[files.rust].surface;
+  };
+  const stubbed = surface("#[cfg_attr(kani, kani::stub(consume, claim), kani::unwind(2))]");
+  assert.equal(stubbed["harness proofs::claim_keeps_invariant"], "kani::unwind(2)");
+  assert.ok("stub consume, claim in proofs::claim_keeps_invariant" in stubbed, JSON.stringify(stubbed));
+  for (const [form, value] of [
+    ["#[cfg_attr(kani, allow(unused), kani::unwind(2),)]", "kani::unwind(2)"],
+    ["#[cfg_attr(kani, kani::unwind(2), allow(unused))]", "kani::unwind(2)"],
+    ["#[kani::unwind[2]] #[kani::should_panic()]", "kani::should_panic() kani::unwind[2]"],
+  ]) {
+    assert.equal(surface(form)["harness proofs::claim_keeps_invariant"], value, form);
+  }
+});
+
 test("an added kani::any_where narrows like an assume and is changed", () => {
   const outcome = recordedThenEdited(null, "rust", rust("let window: u16 = kani::any();", "let window: u16 = kani::any_where(|w: &u16| *w == 1);"));
   assertChanged(outcome, "rust", "added assume |w: &u16| *w == 1");
@@ -900,6 +935,8 @@ test("a Kani form or import the record cannot read fails the record instead of p
     ["#[cfg(kani)]", "extern crate kani as k;\n#[cfg(kani)]", "extern crate kani as"],
     ["#[cfg(kani)]", "use {kani as k};\n#[cfg(kani)]", "use {kani as"],
     ["    #[kani::unwind(2)]\n    fn claim_keeps_invariant", "    #[cfg_attr(all(kani, test), kani::stub(consume, claim))]\n    #[kani::unwind(2)]\n    fn claim_keeps_invariant", "kani::stub"],
+    ["    #[kani::unwind(2)]\n    fn claim_keeps_invariant", "    #[cfg_attr(all(kani, test), kani::unwind(1))]\n    fn claim_keeps_invariant", "kani::unwind"],
+    ["#[cfg(kani)]", "use kani::should_panic;\n#[cfg(kani)]", "use kani::should_panic"],
   ];
   for (const [from, to, named] of forms) {
     const files = models();
