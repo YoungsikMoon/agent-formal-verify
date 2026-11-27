@@ -1015,6 +1015,20 @@ test("a move of an unrecorded file or into another kind of model is a usage erro
   assert.ok(kind.stdout.includes("not a kani model file"), kind.stdout);
 });
 
+test("a move --module of a recorded item that is not a Kani item fails, names the item and keeps the record", () => {
+  const files = models();
+  assert.equal(baseline(files.dir, "record", files.record, files.rust).status, 0);
+  rewriteStatements(files.record, (record) => {
+    record.models[files.rust].surface["edited by hand"] = "";
+  });
+  const before = readFileSync(files.record, "utf8");
+  const result = baseline(files.dir, "move", files.record, files.rust, join(files.dir, "other.rs"), "--module", "crate", "inner");
+  assert.equal(result.status, 1);
+  assert.deepEqual(lines(result), ["FAIL baseline: cannot rename the recorded item 'edited by hand', which is not a Kani harness, assume, cover or stub"]);
+  assert.equal(result.stderr, "");
+  assert.equal(readFileSync(files.record, "utf8"), before);
+});
+
 test("a malformed record fails", () => {
   const files = models();
   writeFileSync(files.record, "{}\n");
