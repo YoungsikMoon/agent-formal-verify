@@ -56,7 +56,8 @@ class Trace:
 
 
 def _build_step(number, action, values, prev):
-    items = tuple(values.items())
+    # TLC prints a stuttering step, "State N: Stuttering", with no variables: it repeats the state before it.
+    items = tuple((values or prev or {}).items())
     if prev is None:
         diffs = tuple(VarDiff(name, None, val) for name, val in items)
     else:

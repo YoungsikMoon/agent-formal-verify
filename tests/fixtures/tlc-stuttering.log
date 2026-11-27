@@ -1,0 +1,15 @@
+Error: Temporal properties were violated.
+
+Error: The following behavior constitutes a counter-example:
+
+State 1: <Initial predicate>
+/\ x = 0
+/\ y = "idle"
+
+State 2: <Next line 6, col 9 to line 6, col 70 of module Stutter>
+/\ x = 1
+/\ y = "ready"
+
+State 3: Stuttering
+Finished checking temporal properties in 00s at 2026-11-27 04:01:23
+3 states generated, 3 distinct states found, 0 states left on queue.
