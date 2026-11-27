@@ -1015,7 +1015,7 @@ test("adding, removing or changing a harness's should_panic or unwind attribute 
 
 test("an added kani::any_where narrows like an assume and is changed", () => {
   const outcome = recordedThenEdited(null, "rust", rust("let window: u16 = kani::any();", "let window: u16 = kani::any_where(|w: &u16| *w == 1);"));
-  assertChanged(outcome, "rust", "added assume |w: &u16| *w == 1");
+  assertChanged(outcome, "rust", "added assume kani::any_where(|w: &u16| *w == 1)");
 });
 
 test("a harness and stub written under cfg_attr(kani, ...) are recorded", () => {
@@ -1027,8 +1027,8 @@ test("a harness and stub written under cfg_attr(kani, ...) are recorded", () => 
 });
 
 test("an any_where with a nested turbofish is read as an assume", () => {
-  const outcome = recordedThenEdited(null, "rust", rust("let window: u16 = kani::any();", "let window: u16 = kani::any_where::<Option<u16>>(|w| w.is_some()).unwrap();"));
-  assertChanged(outcome, "rust", "added assume |w| w.is_some()");
+  const outcome = recordedThenEdited(null, "rust", rust("let window: u16 = kani::any();", "let window: u16 = kani::any_where::<Option<u16>, _>(|w| w.is_some()).unwrap();"));
+  assertChanged(outcome, "rust", "added assume kani::any_where::<Option<u16>, _>(|w| w.is_some())");
 });
 
 test("a Kani path under another crate and a precise capture record", () => {

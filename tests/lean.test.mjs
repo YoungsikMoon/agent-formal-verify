@@ -435,6 +435,20 @@ test("the Lean checker detects a deleted frozen source in project scope but leav
   includes(check().stdout, "FROZEN property: statement changed (source deleted)");
 });
 
+test("whole-project scope checks orphan records under a nested .lake and skips the root build cache", () => {
+  const { check, project } = leanFixture("lake-search.log", { audit: statementAudit(statement("property")) });
+  assert.equal(check(["--freeze", "Model.lean"]).status, 0);
+  const frozen = readFileSync(join(project, "Model.statements"));
+  writeFileSync(join(project, ".lake/Cached.statements"), frozen);
+  assert.equal(check().status, 0);
+  const nested = join(project, "Model/.lake");
+  mkdirSync(nested);
+  writeFileSync(join(nested, "Lost.statements"), frozen);
+  const result = check();
+  assert.equal(result.status, 1);
+  includes(result.stdout, `FROZEN ${join(nested, "Lost.statements")}: source file is missing`);
+});
+
 test("the Lean checker rejects malformed records and a changed toolchain", () => {
   const audit = statementAudit(statement("property"));
   const { project, check } = leanFixture("lake-search.log", { audit });
