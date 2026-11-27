@@ -1,7 +1,7 @@
 {
   "name": "agent-formal-verify",
   "displayName": "Agent formal verify",
-  "version": "0.4.13",
+  "version": "0.4.14",
   "description": "Model-check protocols with TLA+, prove invariants with Lean 4, and check bounded Rust functions with Kani.",
   "author": {
     "name": "Michael Denyer",
