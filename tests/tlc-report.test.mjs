@@ -155,18 +155,6 @@ test("tlc_report.to_mermaid renders multi-step and initial-state reach witnesses
   }
 });
 
-function callSvg(logFile, traceId = "trace-0", kind = "fail") {
-  const script = [
-    "import sys",
-    `sys.path.insert(0, ${JSON.stringify(scripts)})`,
-    "import tlc_report, tlc_trace",
-    'with open(sys.argv[1], encoding="utf-8", newline="") as f:',
-    "    trace = tlc_trace.parse(f)",
-    "print(tlc_report.render_svg(trace, trace_id=sys.argv[2], kind=sys.argv[3]), end='')",
-  ].join("\n");
-  return runPython(script, join(logs, logFile), traceId, kind);
-}
-
 test("tlc_report.to_mermaid keeps labels that hold words Mermaid reads anywhere on a line", () => {
   const log = [
     "Error: Temporal properties were violated.",
@@ -179,7 +167,7 @@ test("tlc_report.to_mermaid keeps labels that hold words Mermaid reads anywhere 
     '/\\ a = "DIRECTION rl"',
     '/\\ b = "[[JOIN]]"',
     "",
-    "State 3: <Next>",
+    "State 3: <Next direction\uFEFFRL>",
     '/\\ a = "Direction Bt"',
     '/\\ b = "<<choice>> [[choice]]"',
     "",
@@ -193,15 +181,28 @@ test("tlc_report.to_mermaid keeps labels that hold words Mermaid reads anywhere 
   assert.deepEqual(lines.filter((line) => line.startsWith('state "')).map(rendered), [
     'state "State 1: Init | a="direction LR", b="[[fork]]"" as S1',
     'state "State 2: Step direction TB | a="DIRECTION rl", b="[[JOIN]]"" as S2',
-    'state "State 3: Next | a="Direction Bt", b="<<choice>> [[choice]]"" as S3',
+    'state "State 3: Next direction\uFEFFRL | a="Direction Bt", b="<<choice>> [[choice]]"" as S3',
   ]);
   includes(rendered(result.stdout), "S1 --> S2 : Step direction TB\n");
+  includes(rendered(result.stdout), "S2 --> S3 : Next direction\uFEFFRL\n");
   includes(rendered(result.stdout), "S3 --> S1 : Back to state 1 - Loop direction LR\n");
   // Mermaid 11's stateDiagram lexer, which ignores case, takes a line that holds any of these as a direction or a fork, join or choice.
   for (const line of lines) {
     assert.doesNotMatch(line, /direction\s+(tb|bt|rl|lr)|<<(fork|join|choice)>>|\[\[(fork|join|choice)\]\]/i, line);
   }
 });
+
+function callSvg(logFile, traceId = "trace-0", kind = "fail") {
+  const script = [
+    "import sys",
+    `sys.path.insert(0, ${JSON.stringify(scripts)})`,
+    "import tlc_report, tlc_trace",
+    'with open(sys.argv[1], encoding="utf-8", newline="") as f:',
+    "    trace = tlc_trace.parse(f)",
+    "print(tlc_report.render_svg(trace, trace_id=sys.argv[2], kind=sys.argv[3]), end='')",
+  ].join("\n");
+  return runPython(script, join(logs, logFile), traceId, kind);
+}
 
 test("tlc_report.render_svg renders clickable state chain, arrow markers, lasso loopback, zero web URLs, and escapes HTML", () => {
   const inv = callSvg("tlc-invariant.log", "trace-0", "fail");

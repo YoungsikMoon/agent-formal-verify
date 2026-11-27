@@ -29,9 +29,9 @@ def _truncate(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 3] + "..."
 
 
-# Characters that Mermaid reads as syntax, and the space or bracket inside words that its stateDiagram lexer
+# Characters that Mermaid reads as syntax or, like U+FEFF, as whitespace, and the space or bracket inside words that its stateDiagram lexer
 # reads anywhere on a line, ignoring case: "direction LR" and the like, and "[[fork]]", "[[join]]" or "[[choice]]".
-_MERMAID_SPECIAL = re.compile(r'[&#"<>:;{}]|(?i:(?<=direction) (?=tb|bt|rl|lr)|\[(?=\[(?:fork|join|choice)\]\]))')
+_MERMAID_SPECIAL = re.compile(r'[&#"<>:;{}\ufeff]|(?i:(?<=direction) (?=tb|bt|rl|lr)|\[(?=\[(?:fork|join|choice)\]\]))')
 
 
 def _sanitize_mermaid(text: str) -> str:
