@@ -129,6 +129,219 @@ test("the trace reducer fails on a log without an error trace", () => {
   assert.equal(result.stdout, "");
 });
 
+function parseTraceFile(path) {
+  const script = [
+    "import dataclasses, json, sys",
+    `sys.path.insert(0, ${JSON.stringify(scripts)})`,
+    "import tlc_trace",
+    `with open(${JSON.stringify(path)}, encoding="utf-8", newline="") as f:`,
+    "    trace = tlc_trace.parse(f)",
+    "print(json.dumps(None if trace is None else dataclasses.asdict(trace)))",
+  ].join("\n");
+  const result = spawnSync("python3", ["-B", "-c", script], { cwd: root, encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  return JSON.parse(result.stdout);
+}
+
+function parseTraceText(text) {
+  const script = [
+    "import dataclasses, json, re, sys",
+    `sys.path.insert(0, ${JSON.stringify(scripts)})`,
+    "import tlc_trace",
+    `trace = tlc_trace.parse(re.split(r"\\r\\n|\\r|\\n", ${JSON.stringify(text)}))`,
+    "print(json.dumps(None if trace is None else dataclasses.asdict(trace)))",
+  ].join("\n");
+  const result = spawnSync("python3", ["-B", "-c", script], { cwd: root, encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  return JSON.parse(result.stdout);
+}
+
+test("tlc_trace.parse parses an invariant violation trace with changed diffs", () => {
+  const trace = parseTraceFile(join(logs, "tlc-invariant.log"));
+  assert.deepEqual(trace, {
+    lasso: null,
+    steps: [
+      {
+        number: 1,
+        action: "Initial predicate",
+        values: [["x", "0"], ["y", "0"]],
+        changed: [
+          { name: "x", old: null, new: "0" },
+          { name: "y", old: null, new: "0" },
+        ],
+      },
+      {
+        number: 2,
+        action: "Step",
+        values: [["x", "1"], ["y", "0"]],
+        changed: [{ name: "x", old: "0", new: "1" }],
+      },
+      {
+        number: 3,
+        action: "Step",
+        values: [["x", "2"], ["y", "1"]],
+        changed: [
+          { name: "x", old: "1", new: "2" },
+          { name: "y", old: "0", new: "1" },
+        ],
+      },
+      {
+        number: 4,
+        action: "Step",
+        values: [["x", "3"], ["y", "1"]],
+        changed: [{ name: "x", old: "2", new: "3" }],
+      },
+    ],
+  });
+});
+
+test("tlc_trace.parse parses liveness lasso with action and location stripped", () => {
+  const trace = parseTraceFile(join(logs, "tlc-liveness.log"));
+  assert.equal(trace.steps.length, 3);
+  assert.deepEqual(trace.lasso, { target: 1, action: "Wrap" });
+});
+
+test("tlc_trace.parse parses Back to state without action label", () => {
+  const trace = parseTraceText([
+    "Error: Temporal properties were violated.",
+    "Error: The following behavior constitutes a counter-example:",
+    "State 1: <Init>",
+    "/\\ x = 0",
+    "State 2: <Step>",
+    "/\\ x = 1",
+    "Back to state 2",
+  ].join("\n"));
+  assert.equal(trace.steps.length, 2);
+  assert.deepEqual(trace.lasso, { target: 2, action: "" });
+});
+
+test("tlc_trace.parse parses one-variable multi-line values, deadlock, reach, and returns None when absent", () => {
+  const oneVar = parseTraceFile(join(logs, "tlc-one-variable.log"));
+  assert.equal(oneVar.steps.length, 3);
+  assert.deepEqual(oneVar.steps[0].values, [["x", "<<>>"]]);
+  assert.ok(oneVar.steps[1].values[0][1].startsWith("<< [ id |-> 0,\n     payload |->"));
+  assert.equal(oneVar.steps[1].changed[0].old, "<<>>");
+
+  const deadlock = parseTraceFile(join(logs, "tlc-deadlock.log"));
+  assert.deepEqual(deadlock, {
+    lasso: null,
+    steps: [{
+      number: 1,
+      action: "Initial predicate",
+      values: [["x", "0"]],
+      changed: [{ name: "x", old: null, new: "0" }],
+    }],
+  });
+
+  const reach = parseTraceFile(join(logs, "tlc-reach.log"));
+  assert.equal(reach.steps.length, 2);
+  assert.equal(reach.steps[1].action, "Claim");
+  assert.deepEqual(reach.steps[1].changed, [{ name: "next", old: "0", new: "1" }]);
+
+  assert.equal(parseTraceFile(join(logs, "lake-sorry.log")), null);
+});
+
+test("tlc_trace.parse parses initial-state violations into a 1-step trace", () => {
+  const trace = parseTraceFile(join(logs, "tlc-reach-initial.log"));
+  assert.deepEqual(trace, {
+    lasso: null,
+    steps: [{
+      number: 1,
+      action: "Initial predicate",
+      values: [["consumed", "0"], ["next", "0"]],
+      changed: [
+        { name: "consumed", old: null, new: "0" },
+        { name: "next", old: null, new: "0" },
+      ],
+    }],
+  });
+});
+
+test("tlc_trace.parse parses single-variable initial-state violation with CRLF endings", () => {
+  const trace = parseTraceText([
+    "Error: Invariant Inv is violated by the initial state:",
+    "x = << 1,",
+    "       2 >>",
+    "",
+    "Finished in 00s",
+  ].join("\r\n"));
+  assert.deepEqual(trace, {
+    lasso: null,
+    steps: [{
+      number: 1,
+      action: "Initial predicate",
+      values: [["x", "<< 1,\n       2 >>"]],
+      changed: [{ name: "x", old: null, new: "<< 1,\n       2 >>" }],
+    }],
+  });
+});
+
+test("tlc_trace.parse stops at post-trace text without appending trailing states or lassos", () => {
+  const afterBlank = parseTraceText([
+    "Error: Invariant Inv is violated.",
+    "Error: The behavior up to this point is:",
+    "State 1: <Init>",
+    "/\\ x = 0",
+    "",
+    "State 2: <Step>",
+    "/\\ x = 1",
+    "",
+    "2 states generated, 2 distinct states found, 0 states left on queue.",
+    "Error: The following behavior constitutes a counter-example:",
+    "State 3: <Bogus>",
+    "/\\ x = 99",
+    "Back to state 1: <BogusLoop>",
+  ].join("\n"));
+  assert.equal(afterBlank.steps.length, 2);
+  assert.equal(afterBlank.lasso, null);
+
+  const direct = parseTraceText([
+    "Error: Invariant Inv is violated.",
+    "Error: The behavior up to this point is:",
+    "State 1: <Init>",
+    "/\\ x = 0",
+    "2 states generated, 1 distinct states found.",
+    "State 2: <Bogus>",
+    "/\\ x = 99",
+  ].join("\n"));
+  assert.equal(direct.steps.length, 1);
+  assert.equal(direct.lasso, null);
+});
+
+test("tlc_trace.parse preserves previous variable values across an empty state", () => {
+  const withBlank = parseTraceText([
+    "Error: Temporal properties were violated.",
+    "Error: The following behavior constitutes a counter-example:",
+    "State 1: <Init>",
+    "/\\ x = 0",
+    "/\\ y = 1",
+    "",
+    "State 2: <Stuttering>",
+    "",
+    "State 3: <Step>",
+    "/\\ x = 2",
+    "/\\ y = 1",
+  ].join("\n"));
+  assert.equal(withBlank.steps.length, 3);
+  assert.deepEqual(withBlank.steps[1].values, []);
+  assert.deepEqual(withBlank.steps[1].changed, []);
+  assert.deepEqual(withBlank.steps[2].changed, [{ name: "x", old: "0", new: "2" }]);
+
+  const adjacent = parseTraceText([
+    "Error: Temporal properties were violated.",
+    "Error: The following behavior constitutes a counter-example:",
+    "State 1: <Init>",
+    "/\\ x = 0",
+    "/\\ y = 1",
+    "State 2: <Stuttering>",
+    "State 3: <Step>",
+    "/\\ x = 2",
+    "/\\ y = 1",
+  ].join("\n"));
+  assert.equal(adjacent.steps.length, 3);
+  assert.deepEqual(adjacent.steps[2].changed, [{ name: "x", old: "0", new: "2" }]);
+});
+
 function matrixFixture(lines, java, log = "tlc-invariant.log") {
   const dir = fixture();
   for (const sub of ["a", "b"]) mkdirSync(join(dir, sub));
@@ -503,4 +716,147 @@ test("long TLC runs forward elapsed time and Progress updates to stderr without 
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, "PASS One n=1 500 distinct states found\nSUMMARY 1 of 1 runs passed, 500 distinct states in total\n");
   assert.match(result.stderr, /\[tlc\] One n=1: \d+s elapsed: Progress\(42\)/);
+});
+
+function runTlcRunner(dir, javaBody, matrixLines, extraEnv = {}) {
+  writeFileSync(join(dir, "checks.matrix"), matrixLines.join("\n") + "\n");
+  writeFileSync(join(dir, "tools.jar"), "user supplied");
+  const java = fakeTlc(dir, javaBody);
+  const script = [
+    "import dataclasses, json, sys, tempfile",
+    "from pathlib import Path",
+    `sys.path.insert(0, ${JSON.stringify(scripts)})`,
+    "import storage, tlc",
+    "checker = tlc.Tlc()",
+    "rendered = []",
+    "with tempfile.TemporaryDirectory(dir=storage.ensure_temp_root()) as work:",
+    `    r = tlc.Runner(checker, Path(${JSON.stringify(dir)}), "", lambda res: rendered.extend(tlc.render(res)), Path(work))`,
+    `    for task in tlc.MatrixPlan(${JSON.stringify(join(dir, "checks.matrix"))}):`,
+    "        r.check(task)",
+    "def encode(obj):",
+    "    if isinstance(obj, tlc.Outcome):",
+    "        return obj.value",
+    "    raise TypeError(type(obj))",
+    "payload = {'failed': r.failed, 'rendered': rendered, 'results': [dataclasses.asdict(res) for res in r.results]}",
+    "print(json.dumps(payload, default=encode))",
+  ].join("\n");
+  const result = spawnSync("python3", ["-B", "-c", script], {
+    cwd: root,
+    encoding: "utf8",
+    env: { ...process.env, JAVA: java, TLC_JAR: join(dir, "tools.jar"), ...extraEnv },
+  });
+  assert.equal(result.status, 0, result.stderr + result.stdout);
+  return JSON.parse(result.stdout);
+}
+
+test("tlc.Runner captures constants, checks, duration_s, and traces across PASS, FAIL (invariant and liveness), and MISSING", () => {
+  const dir = fixture();
+  writeFileSync(join(dir, "One.tla"), "---- MODULE One ----\n====\n");
+  const java = [
+    'for last; do :; done',
+    'cfg="$(dirname "$last")/MC.cfg"',
+    'if grep -q "N = 1" "$cfg"; then',
+    '  echo "Model checking completed. No error has been found."',
+    '  echo "4 distinct states found"',
+    'elif grep -q "N = 2" "$cfg"; then',
+    `  cat ${JSON.stringify(join(logs, "tlc-invariant.log"))}`,
+    '  exit 12',
+    'else',
+    `  cat ${JSON.stringify(join(logs, "tlc-liveness.log"))}`,
+    '  exit 12',
+    'fi',
+  ].join("\n");
+  const out = runTlcRunner(dir, java, [
+    "spec One.tla",
+    "check INVARIANTS Small",
+    "run ok |   N=1  ",
+    "check PROPERTIES Live",
+    "run inv | N=2",
+    "run live | N=3",
+    "spec Gone.tla",
+    "check INVARIANTS MissingCheck",
+    "run gone | N=4",
+  ]);
+  assert.equal(out.failed, true);
+  assert.equal(out.results.length, 4);
+
+  const [passRes, invRes, liveRes, missingRes] = out.results;
+  assert.equal(passRes.outcome, "pass");
+  assert.equal(passRes.constants, "N=1");
+  assert.deepEqual(passRes.checks, ["INVARIANTS Small"]);
+  assert.ok(passRes.duration_s >= 0);
+  assert.equal(passRes.trace, null);
+
+  assert.equal(invRes.outcome, "fail");
+  assert.equal(invRes.constants, "N=2");
+  assert.deepEqual(invRes.checks, ["INVARIANTS Small", "PROPERTIES Live"]);
+  assert.ok(invRes.duration_s >= 0);
+  assert.equal(invRes.trace.steps.length, 4);
+  assert.equal(invRes.trace.lasso, null);
+
+  assert.equal(liveRes.outcome, "fail");
+  assert.equal(liveRes.constants, "N=3");
+  assert.deepEqual(liveRes.checks, ["INVARIANTS Small", "PROPERTIES Live"]);
+  assert.ok(liveRes.duration_s >= 0);
+  assert.equal(liveRes.trace.steps.length, 3);
+  assert.deepEqual(liveRes.trace.lasso, { target: 1, action: "Wrap" });
+
+  assert.equal(missingRes.outcome, "missing");
+  assert.equal(missingRes.constants, "N=4");
+  assert.deepEqual(missingRes.checks, ["INVARIANTS MissingCheck"]);
+  assert.equal(missingRes.duration_s, 0);
+  assert.equal(missingRes.trace, null);
+
+  assert.ok(out.rendered.includes("PASS One ok 4 distinct states found"));
+  assert.ok(out.rendered.includes("FAIL One inv: Error: Invariant Small is violated."));
+  assert.ok(out.rendered.includes("FAIL One live: Error: Temporal properties were violated."));
+  assert.ok(out.rendered.includes("FAIL Gone gone: spec Gone.tla not found"));
+});
+
+test("tlc.Runner captures traces and metadata for multi-state and initial-state reach witnesses", () => {
+  const dir = fixture();
+  writeFileSync(join(dir, "One.tla"), "---- MODULE One ----\n====\n");
+  const java = [
+    'for last; do :; done',
+    'cfg="$(dirname "$last")/MC.cfg"',
+    'if grep -q "^INVARIANT Reach" "$cfg"; then',
+    '  name=$(sed -n "s/^INVARIANT //p" "$cfg")',
+    '  if grep -q "N = 1" "$cfg"; then',
+    `    sed "s/ReachNegated/$name/g" ${JSON.stringify(join(logs, "tlc-reach.log"))}`,
+    '  else',
+    `    sed "s/ReachNegated/$name/g" ${JSON.stringify(join(logs, "tlc-reach-initial.log"))}`,
+    '  fi',
+    '  exit 12',
+    'fi',
+    'echo "Model checking completed. No error has been found."',
+    'echo "4 distinct states found"',
+  ].join("\n");
+  const out = runTlcRunner(dir, java, [
+    "spec One.tla",
+    "reach Multi | multi",
+    "reach Init | init",
+    "run multi | N=1",
+    "run init | N=2",
+  ]);
+  assert.equal(out.failed, false);
+  assert.equal(out.results.length, 4);
+  const multiWitness = out.results[2];
+  const initWitness = out.results[3];
+  assert.equal(multiWitness.outcome, "witness");
+  assert.equal(multiWitness.constants, "N=1");
+  assert.deepEqual(multiWitness.checks, []);
+  assert.ok(multiWitness.duration_s >= 0);
+  assert.equal(multiWitness.trace.steps.length, 2);
+  assert.equal(multiWitness.trace.steps[1].action, "Claim");
+
+  assert.equal(initWitness.outcome, "witness");
+  assert.equal(initWitness.constants, "N=2");
+  assert.deepEqual(initWitness.checks, []);
+  assert.ok(initWitness.duration_s >= 0);
+  assert.equal(initWitness.trace.steps.length, 1);
+  assert.equal(initWitness.trace.steps[0].action, "Initial predicate");
+  assert.deepEqual(initWitness.trace.steps[0].values, [["consumed", "0"], ["next", "0"]]);
+
+  assert.ok(out.rendered.includes("PASS One reach Multi multi: shortest trace 2 states (1 transitions)"));
+  assert.ok(out.rendered.includes("PASS One reach Init init: shortest trace 1 states (0 transitions)"));
 });

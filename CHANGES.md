@@ -1,5 +1,9 @@
 # Changes
 
+## Unreleased
+
+`scripts/tlc-matrix.sh` writes a self-contained HTML report when `TLC_HTML_REPORT` names a path. The report has a table of the runs and, for each failing or `reach` witness trace, a state chain to step through, the variables each step changed, and the trace as Mermaid `stateDiagram-v2` source to copy. It loads nothing over the network. The matrix runner checks the path before TLC starts and replaces the file in one step, and a successful run prints the same lines and exits with the same status as without a report. `scripts/tlc_report.py` builds the report from the traces that `scripts/tlc_trace.py` now parses.
+
 ## 0.4.13 - baseline routes checked against the harnesses Kani compiles
 
 `scripts/baseline.py` reads a route to a Kani harness file only through `mod` declarations, `#[path]` attributes and `include!` items outside macros and function bodies. It does not guess from source text whether a macro, an attribute macro or an `include!` that it cannot read builds another route. The check against the harnesses that Kani compiles covers such a route, so `#[path = "proofs.rs"] mod readable;` beside `cfg_if::cfg_if! { if #[cfg(kani)] { mod proofs; } }` fails `record` with the name that Kani gives the harness on the route inside the macro, such as `proofs::a`. When Kani cannot run at `record`, `compare` makes the check. A route inside a function body, an inline module in one included, and one through a `const _` block, are routes that the record does not read. A harness file outside any Cargo package gets no such check.

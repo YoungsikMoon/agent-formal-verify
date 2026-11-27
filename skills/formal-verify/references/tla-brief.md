@@ -49,7 +49,7 @@ bash <skill-dir>/scripts/tlc-matrix.sh <absolute-path>/tla/<Name>.matrix
 python3 <skill-dir>/scripts/mutate.py <absolute-path>/tla/<Name>.mutations
 ```
 
-The matrix runner prints PASS or FAIL per run and a SUMMARY line. A failing run prints its error trace, reduced to the variables each step changed.
+The matrix runner prints PASS or FAIL per run and a SUMMARY line. A failing run prints its error trace, reduced to the variables each step changed. When the user requests an HTML report, set `TLC_HTML_REPORT=<absolute-path>.html` (outside the repository unless requested otherwise) when running `tlc-matrix.sh` to write a self-contained offline HTML report with interactive SVG traces, variable diffs, and copyable Mermaid `stateDiagram-v2` source for failing and `reach` witness traces.
 
 Each reach check prints its own PASS with the shortest witness length in states and transitions, or FAIL when the model never reaches the state. Witness searches use one worker and ignore deadlock so they can finish exploring a stopped model; `reach:` mutations run with `TLC_WORKERS` because confirming `UNREACHED` explores the full state graph without a witness trace. Attach each `reach` check—especially those paired with `detects reach:<Operator>`—to the smallest boundary `run` that exercises the predicate rather than large fault-injection configurations. The SUMMARY counts reach checks separately; its state total covers ordinary runs only. Use `detects reach:<Operator>` for a mutation that removes a required state. Reach checks do not count as properties for mutation coverage.
 

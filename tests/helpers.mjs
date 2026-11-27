@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 delete process.env.TLC_TIMEOUT;
 delete process.env.TLC_WORKERS;
 delete process.env.TLC_CACHE;
+delete process.env.TLC_HTML_REPORT;
 delete process.env.KANI_HARNESS_TIMEOUT;
 delete process.env.FORMAL_MIN_FREE_GIB;
 

@@ -22,6 +22,7 @@ Usage: tlc-matrix.sh <matrix-file> [label-substring]
   JAVA=<path>        the java binary (default: java on PATH)
   TLC_WORKERS=<n>    TLC worker threads (default auto)
   TLC_TIMEOUT=<lim>  per-run time limit, e.g. 90s, 30m, 1h (default 60m)
+  TLC_HTML_REPORT=<path>  write a self-contained HTML report to this path
 
 Usage: tlc.py ready
   Checks TLC_TIMEOUT, that Java runs, and that the JAR is the pinned release or the one TLC_JAR names, then reports
@@ -54,6 +55,7 @@ sys.dont_write_bytecode = True
 import processes
 import runner
 import storage
+import tlc_report
 import tlc_trace
 
 CHECK_KINDS = ("INVARIANT", "INVARIANTS", "PROPERTY", "PROPERTIES")
@@ -310,6 +312,10 @@ class Result:
     lines: tuple = ()
     states: int = 0
     violation: Violation | None = None
+    constants: str = ""
+    checks: tuple[str, ...] = ()
+    duration_s: float = 0.0
+    trace: tlc_trace.Trace | None = None
 
 
 @dataclass(frozen=True)
@@ -505,8 +511,10 @@ def run_task(checker, matrix_dir, task, work, source=None):
     spec, run = task.spec, task.run
     operator = task.reach.operator if task.reach else ""
     name = Path(spec).name.removesuffix(".tla")
+    run_constants = run.constants.strip()
+    run_checks = tuple(check.line for check in task.checks)
     if not (matrix_dir / spec).is_file():
-        return Result(Outcome.MISSING, name, run.label, detail=spec)
+        return Result(Outcome.MISSING, name, run.label, detail=spec, constants=run_constants, checks=run_checks)
     directory = Path(tempfile.mkdtemp(prefix="run.", dir=work))
     try:
         for module in (matrix_dir / spec).parent.glob("*.tla"):
@@ -520,22 +528,28 @@ def run_task(checker, matrix_dir, task, work, source=None):
         if not task.check_deadlock:
             config += "CHECK_DEADLOCK FALSE\n"
         if not operator:
+            start = time.monotonic()
             status, log, timed_out = checker.run(
                 directory, name, config + "\n".join(check.line for check in task.checks) + "\n",
                 reach=False, progress_label=f"{name} {run.label}",
             )
+            elapsed = time.monotonic() - start
             shutil.rmtree(directory / "states", ignore_errors=True)
-            return ordinary(name, run, status, log, checker.limit if timed_out else None)
+            result = ordinary(name, run, status, log, checker.limit if timed_out else None)
+            return replace(result, constants=run_constants, checks=run_checks, duration_s=elapsed)
         wrapper = f"Reach{uuid.uuid4().hex}"
         invariant = f"{wrapper}Negated"
         (directory / f"{wrapper}.tla").write_text(f"---- MODULE {wrapper} ----\nEXTENDS {name}\n{invariant} == ~{operator}\n====\n", encoding="utf-8")
         # Exhaustive UNREACHED checks in reach: mutations do not depend on shortest-trace determinism.
         reach_workers = checker.workers if source is not None else "1"
+        start = time.monotonic()
         status, log, timed_out = checker.run(
             directory, wrapper, config + f"INVARIANT {invariant}\n",
             reach=True, workers=reach_workers, progress_label=f"{name} reach {operator} {run.label}",
         )
-        return witness(name, run, operator, invariant, status, log, checker.limit if timed_out else None)
+        elapsed = time.monotonic() - start
+        result = witness(name, run, operator, invariant, status, log, checker.limit if timed_out else None)
+        return replace(result, constants=run_constants, checks=run_checks, duration_s=elapsed)
     finally:
         shutil.rmtree(directory, ignore_errors=True)
 
@@ -553,7 +567,7 @@ def ordinary(name, run, status, log, timeout_limit=None):
     errors = [line for line in log.split("\n") if line.startswith("Error:")]
     first = errors[0] if errors else ""
     return Result(Outcome.FAIL, name, run.label, detail=first, lines=(*errors[1:5], *reduced_trace(log)),
-                  violation=violation(first))
+                  violation=violation(first), trace=tlc_trace.parse(re.split(r"\r\n|\r|\n", log)))
 
 
 def witness(name, run, operator, invariant, status, log, timeout_limit=None):
@@ -568,7 +582,8 @@ def witness(name, run, operator, invariant, status, log, timeout_limit=None):
     elif status == 12 and f"Error: Invariant {invariant} is violated." in lines:
         length = sum(1 for line in lines if re.match(r"State [0-9]+:", line))
     if length:
-        return Result(Outcome.WITNESS, name, run.label, operator, f"{length} states ({length - 1} transitions)")
+        return Result(Outcome.WITNESS, name, run.label, operator, f"{length} states ({length - 1} transitions)",
+                      trace=tlc_trace.parse(re.split(r"\r\n|\r|\n", log)))
     if status == 0 and "No error has been found" in log:
         return Result(Outcome.UNREACHED, name, run.label, operator)
     return Result(Outcome.INCOMPLETE, name, run.label, operator, lines=tuple(log.removesuffix("\n").split("\n")) if log else ())
@@ -581,8 +596,10 @@ class Runner:
         self.tlc, self.matrix_dir, self.only, self.emit, self.work = tlc, matrix_dir, only, emit, work
         self.runs_total = self.passed = self.states = self.reach_total = self.reached = 0
         self.failed = False
+        self.results = []
 
     def report(self, result):
+        self.results.append(result)
         self.failed |= result.outcome not in (Outcome.PASS, Outcome.WITNESS)
         self.emit(result)
 
@@ -606,6 +623,40 @@ class Runner:
         self.report(result)
 
 
+def validate_report_path(raw: str) -> Path | None:
+    """Validate TLC_HTML_REPORT path upfront before running TLC, or return None when unset."""
+    trimmed = raw.strip()
+    if not trimmed:
+        return None
+    seps = tuple(dict.fromkeys(s for s in ("/", os.sep, os.altsep) if s))
+    dot_suffixes = tuple(f"{sep}." for sep in seps) + tuple(f"{sep}.." for sep in seps)
+    if trimmed in (".", "..") or trimmed.endswith(seps + dot_suffixes):
+        raise ValueError(f"TLC_HTML_REPORT {trimmed} is a directory")
+    path = Path(trimmed)
+    try:
+        is_dir = path.is_dir()
+        parent_is_dir = path.parent.is_dir()
+        exists = path.exists()
+        is_file = path.is_file() if exists else False
+    except OSError as error:
+        raise ValueError(f"TLC_HTML_REPORT {trimmed} is not accessible: {error}") from error
+    if is_dir:
+        raise ValueError(f"TLC_HTML_REPORT {path} is a directory")
+    if not parent_is_dir:
+        raise ValueError(f"TLC_HTML_REPORT parent directory {path.parent} does not exist")
+    if exists and not is_file:
+        raise ValueError(f"TLC_HTML_REPORT {path} is not a regular file")
+    try:
+        fd, temp_path = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    except OSError as error:
+        raise ValueError(f"TLC_HTML_REPORT {path} is not writable: {error}") from error
+    try:
+        os.close(fd)
+    finally:
+        Path(temp_path).unlink(missing_ok=True)
+    return path
+
+
 def main():
     if sys.argv[1:] == ["ready"]:
         print(f"READY TLC {Tlc().jar}")
@@ -617,6 +668,11 @@ def main():
     matrix, only = sys.argv[1], sys.argv[2] if len(sys.argv) == 3 else ""
     if not Path(matrix).is_file():
         print(f"FAIL {matrix} does not exist")
+        return 1
+    try:
+        report_path = validate_report_path(os.environ.get("TLC_HTML_REPORT", ""))
+    except ValueError as error:
+        print(f"FAIL {error}")
         return 1
     tlc = Tlc()
     with tempfile.TemporaryDirectory(dir=storage.ensure_temp_root()) as work:
@@ -630,7 +686,14 @@ def main():
     summary = f"SUMMARY {matrix_runner.passed} of {matrix_runner.runs_total} runs passed"
     if matrix_runner.reach_total:
         summary += f", {matrix_runner.reached} of {matrix_runner.reach_total} reach checks passed"
-    print(f"{summary}, {matrix_runner.states} distinct states in total")
+    summary_line = f"{summary}, {matrix_runner.states} distinct states in total"
+    print(summary_line)
+    if report_path is not None:
+        try:
+            tlc_report.write_html(report_path, Path(matrix).name, matrix_runner.results, summary_line, only=only)
+        except OSError as error:
+            print(f"FAIL TLC_HTML_REPORT {report_path}: {error}")
+            return 1
     return int(matrix_runner.failed)
 
 
