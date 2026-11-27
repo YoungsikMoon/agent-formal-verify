@@ -116,6 +116,21 @@ test("the trace reducer keeps the lasso of a liveness counter-example", () => {
   includes(result.stdout, "--- state 3: Step\n    x = 2\n    y = 1\n--- Back to state 1");
 });
 
+test("the trace reducer prints a stuttering step as a state with no changes", () => {
+  const result = reduce("tlc-stuttering.log");
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, [
+    "--- state 1: Initial predicate",
+    "    x = 0",
+    '    y = "idle"',
+    "--- state 2: Next",
+    "    x = 1",
+    '    y = "ready"',
+    "--- state 3: Stuttering",
+    "",
+  ].join("\n"));
+});
+
 test("the trace reducer reads a one-variable spec and its multi-line values", () => {
   const result = reduce("tlc-one-variable.log");
   assert.equal(result.status, 0);
@@ -323,7 +338,7 @@ test("tlc_trace.parse preserves previous variable values across an empty state",
     "/\\ y = 1",
   ].join("\n"));
   assert.equal(withBlank.steps.length, 3);
-  assert.deepEqual(withBlank.steps[1].values, []);
+  assert.deepEqual(withBlank.steps[1].values, [["x", "0"], ["y", "1"]]);
   assert.deepEqual(withBlank.steps[1].changed, []);
   assert.deepEqual(withBlank.steps[2].changed, [{ name: "x", old: "0", new: "2" }]);
 
@@ -340,6 +355,18 @@ test("tlc_trace.parse preserves previous variable values across an empty state",
   ].join("\n"));
   assert.equal(adjacent.steps.length, 3);
   assert.deepEqual(adjacent.steps[2].changed, [{ name: "x", old: "0", new: "2" }]);
+});
+
+test("tlc_trace.parse gives the stuttering step of a TLC liveness counter-example the state it repeats", () => {
+  const trace = parseTraceFile(join(logs, "tlc-stuttering.log"));
+  assert.equal(trace.lasso, null);
+  assert.deepEqual(trace.steps.map((step) => step.number), [1, 2, 3]);
+  assert.deepEqual(trace.steps[2], {
+    number: 3,
+    action: "Stuttering",
+    values: [["x", "1"], ["y", '"ready"']],
+    changed: [],
+  });
 });
 
 function matrixFixture(lines, java, log = "tlc-invariant.log") {
