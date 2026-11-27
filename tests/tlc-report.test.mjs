@@ -311,6 +311,24 @@ test("tlc_report.render_html builds self-contained XSS-safe report with table, S
   assert.deepEqual(parsed.lasso, { target: 1, action: "Wrap" });
 });
 
+test("tlc_report.write_html replaces bytes of the matrix name that are not UTF-8", () => {
+  const dir = fixture();
+  const outFile = join(dir, "report.html");
+  const script = [
+    "import os, sys",
+    `sys.path.insert(0, ${JSON.stringify(scripts)})`,
+    "import tlc_report",
+    // Python decodes such a file name argument on Linux with lone surrogates, as os.fsdecode does.
+    "tlc_report.write_html(sys.argv[1], os.fsdecode(b'm\\xff.matrix'), [], 'SUMMARY')",
+  ].join("\n");
+  const result = runPython(script, outFile);
+  assert.equal(result.status, 0, result.stderr);
+  // A strict decoder throws on any byte that is not UTF-8, which readFileSync would turn into U+FFFD itself.
+  const doc = new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(outFile));
+  includes(doc, "<title>TLC Report — m\uFFFD.matrix</title>");
+  includes(doc, "<h1>TLC Matrix Report: m\uFFFD.matrix</h1>");
+});
+
 test("tlc_report.render_html handles all-PASS matrix with zero traces and write_html writes atomically", () => {
   const dir = fixture();
   const outFile = join(dir, "report.html");
