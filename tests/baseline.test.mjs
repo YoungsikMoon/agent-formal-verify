@@ -620,6 +620,31 @@ test("a mod declaration inside cfg_if! is not a route the record reads, so Kani'
   assert.equal(beside.result.stdout, `FAIL baseline: ${beside.proofs}: Kani compiles proofs::a from this file, but no route that the record reads gives that name; declare the module with \`mod <name>;\` or \`#[path = "..."]\` outside macros and function bodies\n`);
 });
 
+test("each route in the crate that the record cannot read is noted in the harness's value and printed at record", () => {
+  const queue = "#[cfg(kani)]\nmod proofs {\n    #[kani::proof]\n    fn check_push() {}\n}\n";
+  const declare = 'macro_rules! declare { ($($t:tt)*) => { $($t)* } }\ndeclare! { #[cfg(feature = "slow")] mod queue; }\nfn main() {}\n';
+  const dir = crate({ "src/lib.rs": "pub mod queue;\n", "src/main.rs": declare, "src/queue.rs": queue });
+  const [record, proofs] = ["record.json", "src/queue.rs"].map((name) => join(dir, name));
+  const recorded = baseline(dir, "record", record, proofs);
+  assert.deepEqual(lines(recorded).slice(1), [`  route not read: ${join(dir, "src/main.rs")}:2: mod queue is inside a macro`]);
+  assert.equal(JSON.parse(readFileSync(record, "utf8")).models[proofs].surface["harness proofs::check_push"], "unread(main.rs: mod queue in a macro)");
+  // The note names the route, not its guards, so only adding or removing such a route is changed.
+  edit(join(dir, "src/main.rs"), 'feature = "slow"', 'feature = "fast"');
+  assertUnchanged(compared({ dir, record, rust: proofs }), "rust");
+  writeFileSync(join(dir, "src/main.rs"), "fn main() {}\n");
+  assert.deepEqual(lines(baseline(dir, "compare", record)), [`CHANGED ${proofs}`, "  changed harness proofs::check_push", "    old: unread(main.rs: mod queue in a macro)", "    new: ", "SUMMARY 0 unchanged, 1 changed"]);
+
+  // An unreadable #[path] or include!, and a file that does not parse, may each lead to the harness file too.
+  const lib = 'mod other;\nmod proofs;\n#[path = "a\\x2e.rs"] mod p;\ninclude!(concat!(env!("OUT_DIR"), "/gen.rs"));\n';
+  const unread = crate({ "lib.rs": lib, "other.rs": "fn open() {\n", "proofs.rs": harness });
+  const [unreadRecord, unreadProofs] = ["record.json", "proofs.rs"].map((name) => join(unread, name));
+  const notes = lines(baseline(unread, "record", unreadRecord, unreadProofs)).slice(1);
+  assert.equal(notes.length, 3, notes.join("\n"));
+  assert.ok(notes.every((line) => line.startsWith(`  route not read: ${unread}/`)), notes.join("\n"));
+  assert.equal(JSON.parse(readFileSync(unreadRecord, "utf8")).models[unreadProofs].surface["harness a"],
+    'unread(lib.rs: include!(concat!(env!("OUT_DIR"), "/gen.rs")); lib.rs: mod p under a path it cannot read; other.rs: a file it cannot parse)');
+});
+
 test("the route reader follows out-of-line mod declarations from the crate roots and reads the cfg guards on each", () => {
   const nested = {
     "src/lib.rs": "#![cfg(unix)]\n#[cfg(a)]\nmod verify;\n#[cfg(d)] pub mod checks;\n",

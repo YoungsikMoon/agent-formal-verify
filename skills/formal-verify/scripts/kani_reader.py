@@ -188,12 +188,20 @@ class RustFile(NamedTuple):
     modules: list
     declarations: list
     includes: list
+    # The `mod <name>;` declarations inside macros, which the route reader does not follow.
+    hidden: list
+
+
+HIDDEN_DECLARATION = re.compile(r"\bmod\s+((?:r#)?\w+)\s*;")
 
 
 def parse_rust(path):
     source = rust_masks(path.read_text(encoding="utf-8"))
-    _, modules, _, declarations, includes = rust_functions(source.without_comments_or_strings)
-    return RustFile(source, modules, declarations, includes)
+    mask = source.without_comments_or_strings
+    _, modules, opaque, declarations, includes = rust_functions(mask)
+    hidden = [RustFunction(match[1], match.start(), match.start(), match.end() - 1, match.end())
+              for start, end in opaque for match in HIDDEN_DECLARATION.finditer(mask, start, end)]
+    return RustFile(source, modules, declarations, includes, hidden)
 
 
 def enclosing_modules(parsed, item):
@@ -287,6 +295,14 @@ class Route(NamedTuple):
     module: str
 
 
+class Unread(NamedTuple):
+    """A route that the route reader cannot read: the file that holds it, the route as the record names it, without a
+    line number, and the message that names its line and why."""
+    file: Path
+    route: str
+    message: str
+
+
 class RouteReader:
     """Read the routes that lead to Kani harness files from their crate roots.
 
@@ -304,13 +320,14 @@ class RouteReader:
 
     def module_tree(self, roots):
         """Return the module declarations that lead to each file the crate roots reach, as {file: {(declarer,
-        declaration)}}, and the message for each reached file or declaration that could not be read.
+        declaration)}}, each reached file, declaration and `include!` that could not be read, and each `mod <name>;`
+        inside a macro in a reached file, the last two as Unread lists.
 
         An `include!("...")` item outside function bodies leads to the file it names, relative to the including file,
         which declares modules as a file that owns its directory does, whatever inline modules hold the include.
         """
         if roots not in self.trees:
-            edges, broken, seen = {}, [], set()
+            edges, broken, hidden, seen = {}, [], [], set()
             work = [(root, True, next((folder for folder in root.parents if (folder / "Cargo.toml").is_file()), None)) for root in roots]
             while work:
                 file, owner, package = work.pop()
@@ -320,13 +337,18 @@ class RouteReader:
                 try:
                     parsed = self.parse(file)
                 except ValueError as error:
-                    broken.append(f"{file}: {error}")
+                    broken.append(Unread(file, "a file it cannot parse", f"{file}: {error}"))
                     continue
+                for declaration in parsed.hidden:
+                    enclosing = enclosing_modules(parsed, declaration)
+                    name = "::".join([module.name for module in enclosing[-1:]] + [declaration.name])
+                    line = parsed.source.without_comments_or_strings.count("\n", 0, declaration.start) + 1
+                    hidden.append(Unread(file, f"mod {name} in a macro", f"{file}:{line}: mod {name} is inside a macro"))
                 for declaration in parsed.declarations:
                     try:
                         targets = list(module_files(file, owner, parsed, declaration))
                     except ValueError as error:
-                        broken.append(str(error))
+                        broken.append(Unread(file, f"mod {declaration.name} under a path it cannot read", str(error)))
                         continue
                     for target, owns in targets:
                         if target.is_file():
@@ -340,16 +362,24 @@ class RouteReader:
                     try:
                         target = include_path(invocation.uncommented[invocation.without_comments_or_strings.index("!") + 1:].strip()[1:-1], file, package)
                     except ValueError as error:
-                        broken.append(f"{file}:{line}: cannot read the path in '{shown}': {error}")
+                        broken.append(Unread(file, shown, f"{file}:{line}: cannot read the path in '{shown}': {error}"))
                         continue
                     if target is None:
-                        broken.append(f"{file}:{line}: cannot read the path in '{shown}'; write it as a string without escapes, or as concat! of such strings and env!(\"CARGO_MANIFEST_DIR\")")
+                        broken.append(Unread(file, shown, f"{file}:{line}: cannot read the path in '{shown}'; write it as a string without escapes, or as concat! of such strings and env!(\"CARGO_MANIFEST_DIR\")"))
                     elif target.is_file():
                         target = target.resolve()
                         edges.setdefault(target, set()).add((file, include))
                         work.append((target, True, package))
-            self.trees[roots] = edges, broken
+            self.trees[roots] = edges, broken, hidden
         return self.trees[roots]
+
+    def unread(self, path):
+        """Return the routes in path's crates that the reader cannot read, sorted by message. The reader cannot tell
+        where such a route leads, so any of them may lead to path."""
+        if (crates := crate_roots(path)) is None:
+            return []
+        _, broken, hidden = self.module_tree(crates[0])
+        return sorted(broken + hidden, key=lambda entry: entry.message)
 
     def routes(self, path):
         """Return the routes that lead to path from its crate roots, sorted. A crate root is one route without guards,
@@ -368,11 +398,11 @@ class RouteReader:
         if (crates := crate_roots(path)) is None:
             return [Route(path, "", "")]
         roots, named = crates
-        edges, broken = self.module_tree(roots)
+        edges, broken, _ = self.module_tree(roots)
         if path in roots and path not in edges:
             return [Route(path, "", "")]
         if path not in edges:
-            unread = "".join(f"; {message}" for message in broken)
+            unread = "".join(f"; {entry.message}" for entry in broken)
             raise ValueError(f"{path}: no module declaration that the record can read leads to this file from a crate root; declare it with `mod <name>;` or `#[path = \"...\"]` outside macros and function bodies, in a file that a crate root reaches{unread}")
 
         def walk(file, visiting):
@@ -405,6 +435,13 @@ def route_label(path, routes):
     return f"routes({labelled})"
 
 
+def unread_label(path, unread):
+    """Return the record's note for the Unread routes that may lead to path: `unread(...)` with each as its file's path
+    relative to path's directory, a colon and the route, sorted and separated by `; `, or "" for none."""
+    found = sorted({f"{os.path.relpath(entry.file, path.parent)}: {entry.route}" for entry in unread})
+    return f"unread({'; '.join(found)})" if found else ""
+
+
 def kani_surface(path, reader):
     source = rust_masks(path.read_text(encoding="utf-8"))
     text, mask = source.uncommented, source.without_comments_or_strings
@@ -412,6 +449,7 @@ def kani_surface(path, reader):
         raise ValueError(f"{path}: '{collapse(renaming[0])}' brings a Kani assumption, cover, stub, harness or harness attribute in under another name; write each as kani::<name> so the record can read it")
     functions, modules, opaque, _, _ = rust_functions(mask)
     declared = route_label(path, reader.routes(path))
+    unread = unread_label(path, reader.unread(path))
 
     def owner_at(position, *, attribute=False):
         if not any(start <= position < end for start, end in opaque):
@@ -440,7 +478,7 @@ def kani_surface(path, reader):
         harness = owner_at(match.start(), attribute=True)
         enclosing = sorted((item for item in functions + modules if item.start <= harness.start and harness.end <= item.end), key=lambda item: item.start)
         guards = cfg_guards(source, [(0, 0, -1)] + [(item.start, item.keyword, item.body) for item in enclosing])
-        value = " ".join(filter(None, (declared, guards, *sorted(attributes.get(harness, ())))))
+        value = " ".join(filter(None, (declared, guards, *sorted(attributes.get(harness, ())), unread)))
         spans.append((match.start(), f"harness {harness.name}", value))
     for token in KANI_TOKEN.finditer(mask):
         if not any(start <= token.start() < end for start, end in read):
