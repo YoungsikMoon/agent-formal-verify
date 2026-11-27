@@ -125,7 +125,7 @@ function leanFixture(log, { status = 0, audit = audited, files = [] } = {}) {
   command(dir, "elan", [
     elanListsPin,
     '[ "$4" = "--version" ] && exit 0',
-    `[ "$3" = "lean" ] && { echo "${dir}"; exit 0; }`,
+    `[ "$3" = "lean" ] && { echo "\${TASK_PREFIX-${dir}}"; echo "$TASK_PREFIX_ERROR" >&2; exit "\${TASK_PREFIX_STATUS:-0}"; }`,
     // Lake writes notices, such as one for a project with both lakefiles, to stderr.
     '[ "$7" = printenv ] && { echo "info: [root]: lakefile.lean and lakefile.toml are both present; using lakefile.lean" >&2; echo "$LEAN_PATH"; exit 0; }',
     'if [[ "$8" == */lean-replay.lean ]]; then echo replay >> "$TASK_TRACE"; sed "s/^/replaying /" "$AFV_REPLAY_MODULES"; [ -z "$TASK_REPLAY" ] || { echo "$TASK_REPLAY"; exit 1; }; exit 0; fi',
@@ -258,6 +258,18 @@ test("the Lean checker passes a pin without leanchecker and reports the replay a
   includes(result.stdout, "no added axiom, kernel replay unavailable");
   excludes(result.stdout, "REPLAYED");
   assert.equal(readFileSync(join(dir, "calls"), "utf8"), "audit\n");
+});
+
+test("an unsuccessful prefix lookup or invalid prefix fails before claiming a replay verdict", () => {
+  const { dir, check } = leanFixture("lake-search.log");
+  for (const env of [{ TASK_PREFIX_STATUS: "17", TASK_PREFIX_ERROR: "lookup failed" }, { TASK_PREFIX: "" }, { TASK_PREFIX: join(dir, "missing") }]) {
+    const result = check([], audited, env);
+    assert.equal(result.status, 1, result.stdout);
+    includes(result.stdout, "cannot locate " + leanPin + " for kernel replay");
+    if (env.TASK_PREFIX_ERROR) includes(result.stdout, env.TASK_PREFIX_ERROR);
+    excludes(result.stdout, "PASS ");
+    excludes(result.stdout, "ships no leanchecker");
+  }
 });
 
 test("freezing does not replay", () => {

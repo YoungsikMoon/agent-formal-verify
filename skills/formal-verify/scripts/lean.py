@@ -409,10 +409,13 @@ def checked(project, toolchain, files, freeze, out, work):
     # replays every declaration of the built modules through the kernel and rejects it. Use its exact-module
     # replayer rather than its CLI's prefix search, which also finds deleted sources' cached objects. A named
     # module rests on the project modules it imports, so replay those too.
-    prefix = processes.guarded(["elan", "run", toolchain, "lean", "--print-prefix"],
-                               lambda process: process.communicate()[0], stdout=subprocess.PIPE,
-                               encoding="utf-8", errors="replace")
+    status, prefix, errors = step(["elan", "run", toolchain, "lean", "--print-prefix"], merge=False)
     prefix = prefix.rstrip("\n")
+    if status or not os.path.isabs(prefix) or not os.path.isdir(prefix):
+        out(f"FAIL {scope}: cannot locate {toolchain} for kernel replay (lean --print-prefix exit {status})")
+        for line in lines(errors) + lines(prefix):
+            out(line)
+        return 1
     replay = "unavailable"
     if os.access(f"{prefix}/bin/leanchecker", os.X_OK):
         imported = [line.removeprefix("IMPORTED ") for line in audit if line.startswith("IMPORTED ")]
