@@ -324,8 +324,8 @@ test("tlc_report.write_html replaces bytes of the matrix name that are not UTF-8
   const result = runPython(script, outFile);
   assert.equal(result.status, 0, result.stderr);
   const doc = readFileSync(outFile, "utf8");
-  includes(doc, "<title>TLC Report — m�.matrix</title>");
-  includes(doc, "<h1>TLC Matrix Report: m�.matrix</h1>");
+  includes(doc, "<title>TLC Report — m\uFFFD.matrix</title>");
+  includes(doc, "<h1>TLC Matrix Report: m\uFFFD.matrix</h1>");
 });
 
 test("tlc_report.render_html handles all-PASS matrix with zero traces and write_html writes atomically", () => {
