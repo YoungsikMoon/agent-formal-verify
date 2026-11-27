@@ -91,12 +91,17 @@ export function run(dir, script, args = [], extra = {}) {
   });
 }
 
-export function isStopped(pid) {
+function isGone(pid) {
   try {
     process.kill(pid, 0);
+    return false;
   } catch (error) {
     return error.code === "ESRCH";
   }
+}
+
+export function isStopped(pid) {
+  if (isGone(pid)) return true;
   try {
     const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
     const afterName = stat.slice(stat.lastIndexOf(") ") + 2);
@@ -105,7 +110,9 @@ export function isStopped(pid) {
     // Non-Linux hosts have no /proc/<pid>/stat; fall back to ps below.
   }
   const ps = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" });
-  return !ps.error && ps.status === 0 && (ps.stdout.trim() === "" || ps.stdout.trim().startsWith("Z"));
+  if (!ps.error && ps.status === 0 && (ps.stdout.trim() === "" || ps.stdout.trim().startsWith("Z"))) return true;
+  // The parent can reap a zombie during the checks above, and ps then lists nothing and exits 1.
+  return isGone(pid);
 }
 
 export function processesWhere(match) {
