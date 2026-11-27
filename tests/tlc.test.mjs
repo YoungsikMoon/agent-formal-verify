@@ -831,7 +831,7 @@ test("long TLC runs forward elapsed time and Progress updates to stderr without 
   assert.match(result.stderr, /\[tlc\] One n=1: \d+s elapsed: Progress\(42\)/);
 });
 
-function runTlcRunner(dir, javaBody, matrixLines, extraEnv = {}) {
+function runTlcRunner(dir, javaBody, matrixLines, extraEnv = {}, keepResults = true) {
   writeFileSync(join(dir, "checks.matrix"), matrixLines.join("\n") + "\n");
   writeFileSync(join(dir, "tools.jar"), "user supplied");
   const java = fakeTlc(dir, javaBody);
@@ -840,20 +840,26 @@ function runTlcRunner(dir, javaBody, matrixLines, extraEnv = {}) {
     "from pathlib import Path",
     `sys.path.insert(0, ${JSON.stringify(scripts)})`,
     "import storage, tlc",
+    "keep = sys.argv[1] == 'keep'",
+    "if not keep:",
+    "    def parse(lines):",
+    "        raise AssertionError('tlc_trace.parse ran without a report')",
+    "    tlc.tlc_trace.parse = parse",
     "checker = tlc.Tlc()",
     "rendered = []",
     "with tempfile.TemporaryDirectory(dir=storage.ensure_temp_root()) as work:",
-    `    r = tlc.Runner(checker, Path(${JSON.stringify(dir)}), "", lambda res: rendered.extend(tlc.render(res)), Path(work))`,
+    `    r = tlc.Runner(checker, Path(${JSON.stringify(dir)}), "", lambda res: rendered.extend(tlc.render(res)), Path(work), keep_results=keep)`,
     `    for task in tlc.MatrixPlan(${JSON.stringify(join(dir, "checks.matrix"))}):`,
     "        r.check(task)",
     "def encode(obj):",
     "    if isinstance(obj, tlc.Outcome):",
     "        return obj.value",
     "    raise TypeError(type(obj))",
-    "payload = {'failed': r.failed, 'rendered': rendered, 'results': [dataclasses.asdict(res) for res in r.results]}",
+    "results = None if r.results is None else [dataclasses.asdict(res) for res in r.results]",
+    "payload = {'failed': r.failed, 'rendered': rendered, 'results': results, 'report_loaded': 'tlc_report' in sys.modules}",
     "print(json.dumps(payload, default=encode))",
   ].join("\n");
-  const result = spawnSync("python3", ["-B", "-c", script], {
+  const result = spawnSync("python3", ["-B", "-c", script, keepResults ? "keep" : "drop"], {
     cwd: root,
     encoding: "utf8",
     env: { ...process.env, JAVA: java, TLC_JAR: join(dir, "tools.jar"), ...extraEnv },
@@ -861,6 +867,62 @@ function runTlcRunner(dir, javaBody, matrixLines, extraEnv = {}) {
   assert.equal(result.status, 0, result.stderr + result.stdout);
   return JSON.parse(result.stdout);
 }
+
+// A fake TLC whose reach checks find a witness and whose other runs violate an invariant.
+const witnessOrViolation = [
+  'for last; do :; done',
+  'cfg="$(dirname "$last")/MC.cfg"',
+  'if grep -q "^INVARIANT Reach" "$cfg"; then',
+  '  name=$(sed -n "s/^INVARIANT //p" "$cfg")',
+  `  sed "s/ReachNegated/$name/g" ${JSON.stringify(join(logs, "tlc-reach.log"))}`,
+  'else',
+  `  cat ${JSON.stringify(join(logs, "tlc-invariant.log"))}`,
+  'fi',
+  'exit 12',
+].join("\n");
+
+test("tlc.Runner without keep_results keeps no results, parses no trace and does not load the report module", () => {
+  const dir = fixture();
+  writeFileSync(join(dir, "One.tla"), "---- MODULE One ----\n====\n");
+  const matrix = ["spec One.tla", "check INVARIANTS Small", "reach Full | bad", "run bad | N=2"];
+  const kept = runTlcRunner(dir, witnessOrViolation, matrix);
+  const dropped = runTlcRunner(dir, witnessOrViolation, matrix, {}, false);
+  assert.equal(dropped.results, null);
+  assert.equal(dropped.report_loaded, false);
+  assert.equal(dropped.failed, true);
+  assert.deepEqual(dropped.rendered, kept.rendered);
+  includes(dropped.rendered.join("\n"), "--- state 1: Initial predicate");
+  assert.deepEqual(kept.results.map((result) => [result.outcome, result.trace.steps.length]), [["fail", 4], ["witness", 2]]);
+});
+
+test("tlc.main without TLC_HTML_REPORT parses no trace and does not load the report module", () => {
+  const dir = fixture();
+  writeFileSync(join(dir, "One.tla"), "---- MODULE One ----\n====\n");
+  writeFileSync(join(dir, "One.matrix"), "spec One.tla\ncheck INVARIANTS Small\nreach Full | bad\nrun bad | N=2\n");
+  writeFileSync(join(dir, "tools.jar"), "user supplied");
+  const java = fakeTlc(dir, witnessOrViolation);
+  const script = [
+    "import sys",
+    `sys.path.insert(0, ${JSON.stringify(scripts)})`,
+    "import tlc",
+    "def parse(lines):",
+    "    raise AssertionError('tlc_trace.parse ran without a report')",
+    "tlc.tlc_trace.parse = parse",
+    "sys.argv = ['tlc.py', sys.argv[1]]",
+    "status = tlc.main()",
+    "print('STATUS', status, 'tlc_report' in sys.modules)",
+  ].join("\n");
+  const result = spawnSync("python3", ["-B", "-c", script, join(dir, "One.matrix")], {
+    cwd: root,
+    encoding: "utf8",
+    env: { ...process.env, JAVA: java, TLC_JAR: join(dir, "tools.jar") },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  includes(result.stdout, "FAIL One bad: Error: Invariant");
+  includes(result.stdout, "PASS One reach Full bad: shortest trace 2 states (1 transitions)");
+  includes(result.stdout, "--- state 1: Initial predicate");
+  assert.match(result.stdout, /\nSTATUS 1 False\n$/);
+});
 
 test("tlc.Runner captures constants, checks, duration_s, and traces across PASS, FAIL (invariant and liveness), and MISSING", () => {
   const dir = fixture();
