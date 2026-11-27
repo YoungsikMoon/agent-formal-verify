@@ -32,7 +32,8 @@ Usage:
                                                      compare old's entry with new from now on
 
 Compare prints UNCHANGED or CHANGED per file, indented lines for each item that
-changed, and a SUMMARY line. Move prints MOVED; it reads only the record, never
+changed, and a SUMMARY line. It prints NOT CHECKED for an unchanged Kani file in a
+Cargo package that record could not check against Kani. Move prints MOVED; it reads only the record, never
 the new file, and with --module renames the recorded Kani owners under module
 OLD to sit under NEW. Exit codes: 0 unchanged, 1 changed or a record or model
 file that fails to parse, 2 usage error.
@@ -281,7 +282,7 @@ class LeanKind:
         return model_entry(self.name, lean_surface(path)), None
 
     def changes(self, entry, path):
-        return differences(entry["surface"], lean_surface(path), ())
+        return differences(entry["surface"], lean_surface(path), ()), []
 
     def valid(self, entry):
         return True
@@ -305,7 +306,7 @@ class TlaKind:
             lines.append("  previous baseline did not track imported modules; review and record this matrix again")
         if "TLA+ layout version" not in old:
             lines.append("  previous baseline did not preserve TLA+ layout; review and record this matrix again")
-        return lines + differences(old, new, ())
+        return lines + differences(old, new, ()), []
 
     def valid(self, entry):
         return True
@@ -340,19 +341,22 @@ class KaniKind:
     def changes(self, entry, path):
         surface = kani_surface(path, self.reader)
         lines = differences(entry["surface"], surface, ("assume", "stub"))
+        unchecked = ("  not checked against Kani at record, so compare cannot see a harness that "
+                     "stopped compiling on a route that the record does not read")
         try:
             problems, names = compiled_problems(path, surface, self.reader, entry.get("compiled"))
-            lines += problems
-            if names is not None and "compiled" not in entry:
-                lines.append("  not checked against Kani at record, so compare cannot see a harness that "
-                             "stopped compiling on a route that the record does not read")
         except ValueError as error:
-            lines.append(f"  FAIL {error}")
-        return lines
+            if "compiled" in entry:
+                return [*lines, f"  FAIL {error}"], []
+            return lines, [unchecked, f"  {error}"]
+        if names is None or "compiled" in entry and not entry.get("partial"):
+            return lines + problems, []
+        return lines + problems, [unchecked]
 
     def valid(self, entry):
         compiled = entry.get("compiled", [])
-        return isinstance(compiled, list) and all(isinstance(name, str) for name in compiled)
+        return (isinstance(compiled, list) and all(isinstance(name, str) for name in compiled)
+                and isinstance(entry.get("partial", False), bool))
 
     def moved(self, entry, module, new, existing):
         surface, compiled = entry["surface"], entry.get("compiled")
@@ -360,13 +364,18 @@ class KaniKind:
             surface = renamed(surface, *module)
             compiled = compiled and list(renamed(dict.fromkeys(compiled), *module))
         surface = joined(surface, new, existing)
+        partial = compiled is None or entry.get("partial", False)
         if existing is not None:
-            # The merged entry holds Kani's list only when both are Kani entries checked against Kani at record.
-            checked = existing["kind"] == self.name and "compiled" in existing
-            compiled = [*existing["compiled"], *compiled] if checked and compiled is not None else None
+            # The merged list keeps the harnesses of each entry checked against Kani at record, and is partial when
+            # either entry was not checked.
+            other = existing.get("compiled") if existing["kind"] == self.name else None
+            partial = partial or other is None or existing.get("partial", False)
+            compiled = None if compiled is None and other is None else [*(other or []), *(compiled or [])]
         result = model_entry(self.name, surface)
         if compiled is not None:
             result["compiled"] = sorted(compiled)
+            if partial:
+                result["partial"] = True
         return result
 
 
@@ -489,20 +498,28 @@ def compare(record_path):
         return 2
     kinds = model_kinds()
     models = read_record(record_path, kinds)
-    changed = 0
+    changed = unchecked = 0
     for model, entry in models.items():
         try:
             if not Path(model).is_file():
-                lines = ["  file is missing"]
+                lines, notes = ["  file is missing"], []
             else:
-                lines = kinds[entry["kind"]].changes(entry, Path(model))
+                lines, notes = kinds[entry["kind"]].changes(entry, Path(model))
         except (OSError, ValueError, KeyError, TypeError) as error:
-            lines = [f"  FAIL {error}"]
+            lines, notes = [f"  FAIL {error}"], []
         changed += bool(lines)
-        print(f"{'CHANGED' if lines else 'UNCHANGED'} {model}")
+        unchecked += bool(notes) and not lines
         if lines:
-            print("\n".join(lines))
-    print(f"SUMMARY {len(models) - changed} unchanged, {changed} changed")
+            status = "CHANGED"
+        elif notes:
+            status = "NOT CHECKED"
+        else:
+            status = "UNCHANGED"
+        print(f"{status} {model}")
+        if lines or notes:
+            print("\n".join(lines + notes))
+    not_checked = f", {unchecked} not checked" if unchecked else ""
+    print(f"SUMMARY {len(models) - changed - unchecked} unchanged, {changed} changed{not_checked}")
     return int(changed > 0)
 
 
