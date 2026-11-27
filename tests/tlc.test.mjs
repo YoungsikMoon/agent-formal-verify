@@ -369,6 +369,69 @@ test("tlc_trace.parse gives the stuttering step of a TLC liveness counter-exampl
   });
 });
 
+// Run Python with tests/tlc_trace_agreement.py importable and return what it prints as JSON.
+function traceAgreement(code, ...args) {
+  const script = [
+    "import json, sys",
+    `sys.path.insert(0, ${JSON.stringify(join(root, "tests"))})`,
+    "import tlc_trace_agreement",
+    code,
+  ].join("\n");
+  const result = spawnSync("python3", ["-B", "-c", script, ...args], { cwd: root, encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  return JSON.parse(result.stdout);
+}
+
+test("tlc_trace.parse and reduce read the same trace from every TLC log fixture, apart from the named differences", () => {
+  const names = readdirSync(logs).filter((name) => /^tlc-.*\.log$/.test(name)).sort();
+  const found = traceAgreement([
+    "found = {}",
+    "for path in sys.argv[1:]:",
+    "    with open(path, encoding='utf-8') as f:",
+    "        found[path.rsplit('/', 1)[-1]] = tlc_trace_agreement.differences(f.read().split('\\n'))",
+    "print(json.dumps(found))",
+  ].join("\n"), ...names.map((name) => join(logs, name)));
+  assert.deepEqual(found, {
+    "tlc-deadlock.log": [[], []],
+    "tlc-invariant.log": [[], []],
+    "tlc-liveness.log": [["lasso location"], []],
+    "tlc-one-variable.log": [[], []],
+    "tlc-reach-initial.log": [["initial state"], []],
+    "tlc-reach.log": [[], []],
+    "tlc-stuttering.log": [["stuttering values"], []],
+  });
+});
+
+test("tlc_trace.parse and reduce read the same trace from the fuzzer's generated logs", () => {
+  const checked = traceAgreement([
+    "import contextlib, random, types",
+    // Only the fuzzing engine needs atheris; check_trace runs without it.
+    "sys.modules['atheris'] = types.SimpleNamespace(instrument_imports=contextlib.nullcontext)",
+    "import fuzz_tlc_trace",
+    "rng = random.Random(294)",
+    "for _ in range(2000):",
+    "    fuzz_tlc_trace.check_trace(bytes(rng.randrange(256) for _ in range(rng.randrange(64))))",
+    "print(2000)",
+  ].join("\n"));
+  assert.equal(checked, 2000);
+});
+
+test("the trace comparison reports a state that reduce prints after the end of parse's trace", () => {
+  const log = [
+    "Error: Invariant Inv is violated.",
+    "Error: The behavior up to this point is:",
+    "State 1: <Init>",
+    "/\\ x = 0",
+    "",
+    "Progress(2) at 2026-11-27 04:01:23: 2 states generated",
+    "State 2: <Next>",
+    "/\\ x = 1",
+  ].join("\n");
+  const [named, other] = traceAgreement("print(json.dumps(tlc_trace_agreement.differences(sys.argv[1].split('\\n'))))", log);
+  assert.deepEqual(named, []);
+  assert.deepEqual(other, ["reduce() prints the states ['state 1: Init', 'state 2: Next'] and parse() reads ['state 1: Init']"]);
+});
+
 function matrixFixture(lines, java, log = "tlc-invariant.log") {
   const dir = fixture();
   for (const sub of ["a", "b"]) mkdirSync(join(dir, sub));
