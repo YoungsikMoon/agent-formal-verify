@@ -566,6 +566,33 @@ test("the matrix runner fails a run line without a bar instead of inventing a co
   assert.equal(existsSync(join(dir, "calls")), false);
 });
 
+test("malformed constant bindings fail the run and baseline while later valid bindings reach TLC intact", () => {
+  const invalid = ["Mode", "Mode=", "=Mode"];
+  const { dir, matrix } = matrixFixture([
+    "spec a/One.tla",
+    ...invalid.map(token => `run bad | N=1 ${token}`),
+    'run valid | Mode=Mode   Workers={a,b}  Token="a=b"',
+  ], [
+    'for last; do :; done',
+    'cat "$(dirname "$last")/MC.cfg" >> "$TASK_TRACE"',
+    'echo "Model checking completed. No error has been found."',
+  ].join("\n"));
+  const result = matrix();
+  assert.equal(result.status, 1, result.stdout);
+  const record = join(dir, "baseline.json");
+  const baseline = run(dir, "baseline.py", ["record", record, join(dir, "checks.matrix")]);
+  assert.equal(baseline.status, 1, baseline.stdout);
+  for (const token of invalid) {
+    const diagnostic = `malformed constant '${token}' in run 'bad': expected Name=Value`;
+    includes(result.stdout, diagnostic);
+    includes(baseline.stdout, diagnostic);
+  }
+  assert.equal(existsSync(record), false);
+  includes(result.stdout, "PASS One valid");
+  assert.equal(readFileSync(join(dir, "calls"), "utf8").trimEnd(),
+    'CONSTANTS\n  Mode = Mode\n  Workers = {a,b}\n  Token = "a=b"\nSPECIFICATION Spec');
+});
+
 test("an existing JAR whose TLC entry point cannot run is unavailable", () => {
   const dir = fixture();
   const jar = join(dir, "bad.jar");

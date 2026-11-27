@@ -231,6 +231,7 @@ function leanMutations(model, frozen, baseline, mutations, outcomes, env = {}) {
   writeFileSync(join(project, "Model/Step.lean"), model);
   const audit = freezeRecord(join(project, "Model/Step.statements"), frozen);
   writeFileSync(join(project, "Model/Step.mutations"), mutations);
+  command(dir, "lean", "exit 0");
   const config = join(dir, "analysis.json");
   writeFileSync(config, JSON.stringify({ baseline, mutations: outcomes }));
   command(dir, "elan", [
@@ -238,7 +239,7 @@ function leanMutations(model, frozen, baseline, mutations, outcomes, env = {}) {
     '[ "$4" = "--version" ] && { echo version >> "$TASK_TRACE"; exit 0; }',
     '[ "$6" = query ] && { echo "$TASK_PROJECT/.lake/build/lib/lean/Model/Step.olean"; exit 0; }',
     '[[ "$9" == */lean-analysis.lean && "${10}" == audit ]] && { echo "$TASK_AUDIT"; echo "AUDITED 1 declarations"; exit 0; }',
-    '[ "$4" = --print-prefix ] && { echo "$TASK_PROJECT"; exit 0; }',
+    `[ "$4" = --print-prefix ] && { echo "${dir}"; exit 0; }`,
     '[ "$6" = env ] && [ "$7" != lean ] && { shift 6; exec "$@"; }',
     'echo analyse >> "$TASK_TRACE"',
     '[[ "$9" == */lean-analysis.lean && "${10}" == analyze ]] || { echo "unexpected elan call: $*" >&2; exit 9; }',

@@ -182,7 +182,7 @@ def check_lean(broken_checks, mutation, work):
 
 def check_rust(model, project, verifier, bounds, sources, mutation, work):
     """Run Kani on the named harness in a mutated copy of the crate; the mutation covers that harness."""
-    copy = sources.stage(project, work / "source")
+    copy = sources.stage(project, work)
     covers = frozenset({mutation.detects})
     (copy / model.relative_to(project)).write_text(mutation.apply(), encoding="utf-8")
     # Cargo resolves configuration from cwd, including paths outside the copied packages.

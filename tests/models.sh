@@ -190,6 +190,12 @@ bash "$scripts/lean-check.sh" "$p" Model/BoundedQueue.lean
 rm "$p/Model/Ghost.lean"
 bash "$scripts/lean-check.sh" "$p"
 
+# Only the project's own lakefile is configuration. The library can own a module with that name.
+scenario lean-nested-lakefile
+echo 'theorem unfinished : False := by trivial' > "$p/Model/lakefile.lean"
+rejected bash "$scripts/lean-check.sh" "$p" | tee "$work/lean.out"
+grep -q 'Model/lakefile.lean:1:' "$work/lean.out"
+
 # An unfinished proof in a file that no library owns, named like a built module.
 scenario lean-unowned
 mkdir -p "$p/Scratch/Model"

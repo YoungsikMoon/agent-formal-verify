@@ -39,10 +39,12 @@ OLD to sit under NEW. Exit codes: 0 unchanged, 1 changed or a record or model
 file that fails to parse, 2 usage error.
 """
 import argparse
+import fcntl
 import hashlib
 import json
 import re
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -257,10 +259,10 @@ def tla_surface(path):
     for task in tasks:
         if task.reach:
             surface.add(f"reach {task.spec} {task.reach.operator} | {collapse(task.reach.match)}",
-                        {"run": collapse(task.run.label), "constants": collapse(task.run.constants)})
+                        {"run": collapse(task.run.label), "constants": task.run.constants})
             specs[task.spec].add(task.reach.operator)
         else:
-            run = surface.add(f"run {task.spec} {collapse(task.run.label)}", collapse(task.run.constants))
+            run = surface.add(f"run {task.spec} {collapse(task.run.label)}", task.run.constants)
             for check in task.checks:
                 for name in check.names:
                     surface.add(f"check {task.spec} {check.kind} {name} | [{run}]")
@@ -315,6 +317,11 @@ class TlaKind:
         return model_entry(self.name, joined(entry["surface"], new, existing))
 
 
+def may_omit_generator_types(entry):
+    # Older entries used the same keys for plain assumptions and generator predicates.
+    return not entry.get("generator_types") and any(key.startswith("assume ") for key in entry["surface"])
+
+
 class KaniKind:
     """Record, compare and move the harnesses, assumptions, covers and stubs of a Kani file, checked against what Kani compiles."""
 
@@ -326,6 +333,7 @@ class KaniKind:
     def entry(self, path):
         surface = kani_surface(path, self.reader)
         entry = model_entry(self.name, surface)
+        entry["generator_types"] = True
         notes = [f"  route not read: {route.message}" for route in self.reader.unread(path)]
         # A harness that no longer compiles is recorded from its text alone; compare asks Kani again.
         try:
@@ -341,6 +349,8 @@ class KaniKind:
     def changes(self, entry, path):
         surface = kani_surface(path, self.reader)
         lines = differences(entry["surface"], surface, ("assume", "stub"))
+        if may_omit_generator_types(entry):
+            lines.insert(0, "  previous baseline stored assumptions without distinguishing any_where input types; review the original assumptions and record this file again")
         unchecked = ("  not checked against Kani at record, so compare cannot tell a harness that "
                      "stopped compiling from one that never compiled")
         try:
@@ -361,7 +371,7 @@ class KaniKind:
     def valid(self, entry):
         compiled = entry.get("compiled", [])
         return (isinstance(compiled, list) and all(isinstance(name, str) for name in compiled)
-                and isinstance(entry.get("partial", False), bool))
+                and isinstance(entry.get("partial", False), bool) and isinstance(entry.get("generator_types", False), bool))
 
     def moved(self, entry, module, new, existing):
         surface, compiled = entry["surface"], entry.get("compiled")
@@ -377,6 +387,8 @@ class KaniKind:
             partial = partial or other is None or existing.get("partial", False)
             compiled = None if compiled is None and other is None else [*(other or []), *(compiled or [])]
         result = model_entry(self.name, surface)
+        if not any(may_omit_generator_types(part) for part in (entry, existing) if part is not None):
+            result["generator_types"] = True
         if compiled is not None:
             result["compiled"] = sorted(compiled)
             if partial:
@@ -418,8 +430,16 @@ def read_record(path, kinds):
     return models
 
 
-def write_record(path, models):
+@contextmanager
+def locked_models(path, kinds):
+    """Lock a stable sibling across the read and replacement of a record."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    with path.with_name(f".{path.name}.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield read_record(path, kinds) if path.exists() else {}
+
+
+def write_record(path, models):
     runner.atomic_write(path, json.dumps({"format": FORMAT, "models": models}, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
 
 
@@ -430,13 +450,14 @@ def record(record_path, files):
         if file.suffix not in by_suffix:
             print(f"usage: {file} has no model surface; expected one of {', '.join(by_suffix)}")
             return 2
-    models = read_record(record_path, kinds) if record_path.exists() else {}
     updates, notes = {}, {}
     for file in files:
         model = str(file.resolve())
         updates[model], note = by_suffix[file.suffix].entry(file.resolve())
         if note:
             notes[model] = note
+    with locked_models(record_path, kinds) as models:
+        write_record(record_path, {**models, **updates})
     for model, entry in updates.items():
         print(f"RECORDED {model} {entry['digest']}")
         previous = models.get(model, {}).get("digest")
@@ -444,7 +465,6 @@ def record(record_path, files):
             print(f"  previous {previous}")
         if model in notes:
             print(notes[model])
-    write_record(record_path, {**models, **updates})
     return 0
 
 
@@ -467,21 +487,21 @@ def renamed(surface, old_module, new_module):
 
 def move(record_path, old_file, new_file, module):
     kinds = model_kinds()
-    models = read_record(record_path, kinds) if record_path.is_file() else {}
     old, new = str(old_file.resolve()), str(new_file.resolve())
-    if old not in models:
-        print(f"usage: {old} has no record entry; record it before the move")
-        return 2
-    kind = kinds[models[old]["kind"]]
-    if new_file.suffix != kind.suffix:
-        print(f"usage: {new} is not a {kind.name} model file")
-        return 2
-    if module and not kind.renames:
-        print("usage: --module applies only to a Kani harness file")
-        return 2
-    entry = models.pop(old)
-    models[new] = kind.moved(entry, module, new, models.get(new))
-    write_record(record_path, models)
+    with locked_models(record_path, kinds) as models:
+        if old not in models:
+            print(f"usage: {old} has no record entry; record it before the move")
+            return 2
+        kind = kinds[models[old]["kind"]]
+        if new_file.suffix != kind.suffix:
+            print(f"usage: {new} is not a {kind.name} model file")
+            return 2
+        if module and not kind.renames:
+            print("usage: --module applies only to a Kani harness file")
+            return 2
+        entry = models.pop(old)
+        models[new] = kind.moved(entry, module, new, models.get(new))
+        write_record(record_path, models)
     print(f"MOVED {old} -> {new}")
     return 0
 
