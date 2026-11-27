@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-`scripts/tlc-matrix.sh` writes a self-contained HTML report when `TLC_HTML_REPORT` names a path. The report has a table of the runs and, for each failing or `reach` witness trace, a state chain to step through, the variables each step changed, and the trace as Mermaid `stateDiagram-v2` source to copy. It loads nothing over the network. The matrix runner checks the path before TLC starts and replaces the file in one step, and a successful run prints the same lines and exits with the same status as without a report. `scripts/tlc_report.py` builds the report from the traces that `scripts/tlc_trace.py` now parses.
+`scripts/tlc-matrix.sh` writes a self-contained HTML report when `TLC_HTML_REPORT` names a path. The report has a table of the runs and, for each failing or `reach` witness trace, a state chain to step through, the variables each step changed, and the trace as Mermaid `stateDiagram-v2` source to copy. It loads nothing over the network. The matrix runner checks the path before TLC starts and replaces the file in one step, and a successful run prints the same lines and exits with the same status as without a report. `scripts/tlc_report.py` builds the report from the traces that `scripts/tlc_trace.py` now parses. The Mermaid labels keep the trace's TLA+ text: each character that Mermaid reads as syntax, such as `{`, `:` or `"`, is written as a Mermaid entity code, such as `#123;`, which Mermaid draws as that character.
 
 ## 0.4.13 - baseline routes checked against the harnesses Kani compiles
 

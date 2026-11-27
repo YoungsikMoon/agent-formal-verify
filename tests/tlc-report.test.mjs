@@ -123,25 +123,34 @@ test("tlc_report.to_mermaid renders multi-step and initial-state reach witnesses
     '/\\ a = << 1, "two" >>',
     "/\\ b = [k |-> {1, 2}; m: 3]",
     "/\\ c = a --> b\n       more",
+    "State 2: <Send({m}): x>",
+    `/\\ a = ${"{".repeat(40)}`,
+    '/\\ b = "#1; x # y"',
+    "/\\ c = a --> b\n       more",
   ].join("\n");
   const special = callMermaidText(specialLog, { title: 'Check "x"; a --> b\nline2' });
   assert.equal(special.status, 0, special.stderr);
-  includes(special.stdout, "(+1 more)");
-  for (const line of special.stdout.split("\n")) {
-    if (line.startsWith('state "')) {
-      const inner = line.slice(7, line.lastIndexOf('" as S'));
-      excludes(inner, '"');
-      excludes(inner, ";");
-      excludes(inner, "-->");
-      excludes(inner, "<");
-      excludes(inner, ">");
-      excludes(inner, "{");
-      excludes(inner, "}");
-      excludes(inner, "\n");
-    }
-    if (line.startsWith("%% ")) {
-      excludes(line, "-->");
-      excludes(line, ";");
+  const lines = special.stdout.split("\n");
+  // Mermaid renders the entity code #<decimal>; as the character with that code.
+  const rendered = (text) => text.replace(/#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)));
+  const labels = lines.filter((line) => line.startsWith('state "')).map((line) => line.slice(7, line.lastIndexOf('" as S')));
+  assert.deepEqual(labels.map(rendered), [
+    'State 1: Init | a=<< 1, "two" >>, b=[k |-> {1, 2}; m: 3], (+1 more)',
+    `State 2: Send({m}): x | a=${"{".repeat(29)}..., b="#1; x # y"`,
+  ]);
+  const transition = lines.find((line) => line.startsWith("S1 --> S2 : "));
+  assert.equal(rendered(transition), "S1 --> S2 : Send({m}): x");
+  const comment = lines.find((line) => line.startsWith("%% "));
+  assert.equal(rendered(comment), '%% Check "x"; a --> b line2');
+  const traceText = [
+    ...labels.map((label) => label.replace(/^State \d+: /, "")),
+    transition.slice("S1 --> S2 : ".length),
+    comment.slice("%% ".length),
+  ];
+  for (const text of traceText) {
+    const bare = text.replace(/#\d+;/g, "");
+    for (const character of ['"', "<", ">", "{", "}", ":", ";", "#", "\n"]) {
+      excludes(bare, character);
     }
   }
 });
