@@ -148,15 +148,18 @@ def step(command, *, merge=True, env=None):
         return 127, "", f"cannot run {command[0]}: {error}\n"
 
 
-def project_sources(project):
-    """Every .lean file in the project outside its .lake directory, except Lake's own lakefile.lean."""
-    found = []
+def project_files(project):
+    """Find model sources and orphan records in the same walk, outside the root Lake build directory."""
+    sources, records = set(), []
     for top, directories, names in os.walk(project):
-        found += [os.path.join(top, name) for name in directories + names
-                  if name.endswith(".lean") and name != "lakefile.lean"]
         if top == project and ".lake" in directories:
             directories.remove(".lake")
-    return sorted(found)
+        for name in directories + names:
+            if name.endswith(".lean") and (top != project or name != "lakefile.lean"):
+                sources.add(os.path.join(top, name))
+            elif name.endswith(".statements"):
+                records.append(Path(top, name))
+    return sorted(sources), sorted(path for path in records if str(path.with_suffix(".lean")) not in sources)
 
 
 def layout(objects, search_path):
@@ -205,18 +208,14 @@ def records_by_name(modules, module):
     return records
 
 
-def check_orphans(project, out):
-    """Report every record whose source file is gone, outside the .lake directory."""
-    failed = False
-    for path in sorted(project.rglob("*.statements")):
-        if ".lake" in path.relative_to(project).parts or path.with_suffix(".lean").is_file():
-            continue
+def check_orphans(orphans, out):
+    """Report every record without a model source in the project."""
+    for path in orphans:
         record = read_record(path)
         out(f"FROZEN {path}: source file is missing")
         for declaration in record["declarations"]:
             out(f"FROZEN {declaration['name']}: statement changed (source deleted)")
-        failed = True
-    return int(failed)
+    return int(bool(orphans))
 
 
 def freeze_statements(toolchain, modules, sources, out):
@@ -313,14 +312,14 @@ def checked(project, toolchain, files, freeze, out, work):
                 out(f"FAIL {source} does not exist")
                 return 1
     else:
+        sources, orphans = project_files(project)
         if not freeze:
-            status, output = statements(lambda sink: check_orphans(Path(project), sink))
+            status, output = statements(lambda sink: check_orphans(orphans, sink))
             if status:
                 out(f"FAIL {scope}: frozen model sources are missing or their records are invalid")
                 for line in output:
                     out(line)
                 return status
-        sources = project_sources(project)
         if not sources:
             out(f"FAIL {project} has no .lean file to check")
             return 1
@@ -409,12 +408,17 @@ def checked(project, toolchain, files, freeze, out, work):
     # replays every declaration of the built modules through the kernel and rejects it. Use its exact-module
     # replayer rather than its CLI's prefix search, which also finds deleted sources' cached objects. A named
     # module rests on the project modules it imports, so replay those too.
-    prefix = processes.guarded(["elan", "run", toolchain, "lean", "--print-prefix"],
-                               lambda process: process.communicate()[0], stdout=subprocess.PIPE,
-                               encoding="utf-8", errors="replace")
+    status, prefix, errors = step(["elan", "run", toolchain, "lean", "--print-prefix"], merge=False)
     prefix = prefix.rstrip("\n")
+    compiler = os.path.join(prefix, "bin", "lean")
+    if status or not os.path.isabs(prefix) or not os.path.isfile(compiler) or not os.access(compiler, os.X_OK):
+        out(f"FAIL {scope}: cannot locate {toolchain} for kernel replay (lean --print-prefix exit {status})")
+        for line in lines(errors) + lines(prefix):
+            out(line)
+        return 1
     replay = "unavailable"
-    if os.access(f"{prefix}/bin/leanchecker", os.X_OK):
+    # The replayer imports LeanChecker. The installed CLI marks support even if its execute bit was lost.
+    if os.path.lexists(f"{prefix}/bin/leanchecker"):
         imported = [line.removeprefix("IMPORTED ") for line in audit if line.startswith("IMPORTED ")]
         replayed = set(modules) | {module for module in imported
                                    if any((library / (module.replace(".", "/") + ".olean")).is_file() for library in libraries)}

@@ -93,7 +93,10 @@ class Mutation:
     old: str
     new: str
     original: str
-    source: str
+    start: int
+
+    def apply(self):
+        return "".join((self.original[:self.start], self.new, self.original[self.start + len(self.old):]))
 
 
 class Verdict(Enum):
@@ -135,7 +138,7 @@ def parse(path):
 
 
 def make_mutation(label, directives, model, text, language):
-    """Check one mutation's directives against its language and apply it to the model's text."""
+    """Validate one mutation and locate its edit in the original model."""
     lines = {keyword: [rest for word, rest in directives if word == keyword] for keyword in DIRECTIVES}
     for keyword in SINGLE:
         if len(lines[keyword]) > 1:
@@ -147,17 +150,18 @@ def make_mutation(label, directives, model, text, language):
     if lines["only"] and not language.takes_only:
         stop(f"mutation '{label}': {language.name} mutations do not support 'only'")
     old = "\n".join(lines["-"])
-    count = text.count(old) if old else 0
-    if count != 1:
+    start = text.find(old) if old else -1
+    if start < 0 or text.find(old, start + len(old)) >= 0:
+        count = text.count(old) if old else 0
         stop(f"mutation '{label}': its - text occurs {count} times in {model}, want 1")
     detects, only = (lines[keyword][0].strip() if lines[keyword] else "" for keyword in SINGLE)
     new = "\n".join(lines["+"])
-    return Mutation(label, detects, only, old, new, text, text.replace(old, new))
+    return Mutation(label, detects, only, old, new, text, start)
 
 
 def check_tla(plan, checker, mutation, work):
     try:
-        detection = plan.check(checker, mutation.detects, mutation.only, mutation.source, work)
+        detection = plan.check(checker, mutation.detects, mutation.only, mutation.apply(), work)
     except ValueError as error:
         return Result(Verdict.ERROR, str(error))
     covers = frozenset({mutation.detects})
@@ -178,9 +182,9 @@ def check_lean(broken_checks, mutation, work):
 
 def check_rust(model, project, verifier, bounds, sources, mutation, work):
     """Run Kani on the named harness in a mutated copy of the crate; the mutation covers that harness."""
-    copy = sources.stage(project, work / "source")
+    copy = sources.stage(project, work)
     covers = frozenset({mutation.detects})
-    (copy / model.relative_to(project)).write_text(mutation.source, encoding="utf-8")
+    (copy / model.relative_to(project)).write_text(mutation.apply(), encoding="utf-8")
     # Cargo resolves configuration from cwd, including paths outside the copied packages.
     outcome = kani.verify(copy, work, verifier, mutation.detects, bounds[mutation.detects].unwind, cwd=project)
     if outcome.verdict is kani.Verdict.PASS:
