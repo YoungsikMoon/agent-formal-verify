@@ -726,19 +726,29 @@ test("tlc_report inline script renderStep updates counter, header, diff, snapsho
     "import sys",
     `sys.path.insert(0, ${JSON.stringify(scripts)})`,
     "import tlc, tlc_report, tlc_trace",
-    "steps = (",
-    "  tlc_trace.Step(1, 'Init', (('x', '0'), ('y', '10')), (tlc_trace.VarDiff('x', None, '0'), tlc_trace.VarDiff('y', None, '10'))),",
-    "  tlc_trace.Step(2, 'Inc', (('x', '1'), ('y', '10')), (tlc_trace.VarDiff('x', '0', '1'),)),",
-    "  tlc_trace.Step(3, 'Stuttering', (), ()),",
-    ")",
-    "results = [tlc.Result(tlc.Outcome.FAIL, 'One', 'stutter', detail='err', trace=tlc_trace.Trace(steps))]",
+    "trace = tlc_trace.parse(sys.argv[1].split('\\n'))",
+    "results = [tlc.Result(tlc.Outcome.FAIL, 'One', 'stutter', detail='err', trace=trace)]",
     "print(tlc_report.render_html('One.matrix', results, 'SUMMARY'), end='')",
   ].join("\n");
-  const rendered = runPython(py);
+  // TLC 1.7.4 prints the stuttering step at the end of a liveness counter-example with no variables.
+  const log = [
+    "Error: Temporal properties were violated.",
+    "Error: The following behavior constitutes a counter-example:",
+    "State 1: <Init>",
+    "/\\ x = 0",
+    "/\\ y = 10",
+    "State 2: <Inc>",
+    "/\\ x = 1",
+    "/\\ y = 10",
+    "State 3: Stuttering",
+    "Finished checking temporal properties in 00s",
+  ].join("\n");
+  const rendered = runPython(py, log);
   assert.equal(rendered.status, 0, rendered.stderr);
   const htmlDoc = rendered.stdout;
   includes(htmlDoc, 'id="snapshot-summary-0"');
-  includes(htmlDoc, "Full State Snapshot (0 variables)");
+  includes(htmlDoc, "Full State Snapshot (2 variables)");
+  excludes(htmlDoc, "Full State Snapshot (0 variables)");
 
   const dataMatch = htmlDoc.match(/<script type="application\/json" id="trace-data-0">([\s\S]*?)<\/script>/);
   assert.ok(dataMatch, "missing trace-data-0 payload");
@@ -766,7 +776,7 @@ test("tlc_report inline script renderStep updates counter, header, diff, snapsho
   headerEl.textContent = "State 3 — Stuttering";
   const diffBodyEl = makeEl("tbody");
   const snapSummaryEl = makeEl("summary");
-  snapSummaryEl.textContent = "Full State Snapshot (0 variables)";
+  snapSummaryEl.textContent = "Full State Snapshot (2 variables)";
   const snapBodyEl = makeEl("tbody");
 
   const dataScriptEl = { id: "trace-data-0", textContent: dataMatch[1] };
@@ -837,8 +847,8 @@ test("tlc_report inline script renderStep updates counter, header, diff, snapsho
   buttons[1].listeners.click();
   assert.equal(counterEl.textContent, "Step 3 / 3");
   assert.equal(headerEl.textContent, "State 3 — Stuttering");
-  assert.equal(snapSummaryEl.textContent, "Full State Snapshot (0 variables)");
+  assert.equal(snapSummaryEl.textContent, "Full State Snapshot (2 variables)");
   assert.deepEqual(rowTexts(diffBodyEl), [["No variable changes in this step."]]);
-  assert.deepEqual(rowTexts(snapBodyEl), []);
+  assert.deepEqual(rowTexts(snapBodyEl), [["x", "1"], ["y", "10"]]);
   assert.deepEqual(traceNodes.map((n) => n.selected), [false, false, true]);
 });
