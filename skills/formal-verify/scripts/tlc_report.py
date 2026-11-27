@@ -367,13 +367,13 @@ def _table_row(idx: int, result: object) -> str:
     outcome_val = result.outcome.value
     badge_cls = f"badge-{outcome_val.replace(' ', '-')}"
     checks = ", ".join(result.checks) if result.checks else "-"
+    parts = []
     if result.trace is not None and bool(result.trace.steps):
-        ref = f'<a href="#trace-{idx}">View trace ({len(result.trace.steps)})</a>'
-    elif result.lines:
+        parts.append(f'<a href="#trace-{idx}">View trace ({len(result.trace.steps)})</a>')
+    if result.lines:
         joined = _esc("\n".join(result.lines))
-        ref = f"<details><summary>Output ({len(result.lines)} lines)</summary><pre>{joined}</pre></details>"
-    else:
-        ref = "-"
+        parts.append(f"<details><summary>Output ({len(result.lines)} lines)</summary><pre>{joined}</pre></details>")
+    ref = " ".join(parts) or "-"
     cells = [
         _esc(_result_type(result)),
         _esc(result.name or "-"),
