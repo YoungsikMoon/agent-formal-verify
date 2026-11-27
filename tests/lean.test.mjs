@@ -122,6 +122,7 @@ function leanFixture(log, { status = 0, audit = audited, files = [] } = {}) {
     mkdirSync(join(project, file, ".."), { recursive: true });
     writeFileSync(join(project, file), "");
   }
+  command(dir, "lean", "exit 0");
   command(dir, "elan", [
     elanListsPin,
     '[ "$4" = "--version" ] && exit 0',
@@ -232,6 +233,14 @@ test("the Lean checker replays the built modules through the kernel when the pin
   assert.equal(readFileSync(join(dir, "calls"), "utf8"), "audit\naudit\nreplay\n");
 });
 
+test("a non-executable leanchecker still triggers replay through its Lean module", () => {
+  const { dir, check } = leanFixture("lake-search.log");
+  writeFileSync(join(dir, "bin/leanchecker"), "");
+  const result = check();
+  assert.equal(result.status, 0, result.stdout);
+  includes(result.stdout, "kernel replay passed");
+});
+
 test("a named Lean replay includes imported project modules once", () => {
   const { dir, check } = leanFixture("lake-search.log");
   command(dir, "leanchecker", "exit 0");
@@ -262,7 +271,9 @@ test("the Lean checker passes a pin without leanchecker and reports the replay a
 
 test("an unsuccessful prefix lookup or invalid prefix fails before claiming a replay verdict", () => {
   const { dir, check } = leanFixture("lake-search.log");
-  for (const env of [{ TASK_PREFIX_STATUS: "17", TASK_PREFIX_ERROR: "lookup failed" }, { TASK_PREFIX: "" }, { TASK_PREFIX: join(dir, "missing") }]) {
+  const empty = join(dir, "empty");
+  mkdirSync(empty);
+  for (const env of [{ TASK_PREFIX_STATUS: "17", TASK_PREFIX_ERROR: "lookup failed" }, { TASK_PREFIX: "" }, { TASK_PREFIX: join(dir, "missing") }, { TASK_PREFIX: empty }]) {
     const result = check([], audited, env);
     assert.equal(result.status, 1, result.stdout);
     includes(result.stdout, "cannot locate " + leanPin + " for kernel replay");
