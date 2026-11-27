@@ -5,7 +5,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
-import { assertProcessStopped, command, fakeTlc, fixture, includes, logs, processesWhere, removeFixtures, root, run, scripts, waitFor } from "./helpers.mjs";
+import { assertProcessStopped, command, fakeTlc, fixture, includes, isStopped, logs, processesWhere, removeFixtures, root, run, scripts, waitFor } from "./helpers.mjs";
 
 afterEach(removeFixtures);
 
@@ -529,6 +529,28 @@ test("SIGTERM, SIGHUP and SIGKILL sent to the runner process group still stop TL
     });
     const pid = Number(readFileSync(pidFile, "utf8").trim());
     assertProcessStopped(pid);
+  }
+});
+
+test("isStopped counts a process that its parent reaps during the check as stopped", () => {
+  const dir = fixture();
+  const pidFile = join(dir, "sleep.pid");
+  const parent = spawn("bash", ["-c", 'sleep 30 & echo "$!" > "$1"; wait', "bash", pidFile], { detached: true, stdio: "ignore" });
+  const path = process.env.PATH;
+  try {
+    assert.ok(waitFor(() => existsSync(pidFile) && readFileSync(pidFile, "utf8").endsWith("\n")), "expected the sleep pid");
+    const pid = Number(readFileSync(pidFile, "utf8").trim());
+    // Stands in for ps while the process ends: bash reaps it, then ps finds no process, lists nothing and exits 1.
+    command(dir, "ps", 'for pid; do :; done\nkill -KILL "$pid"\nwhile kill -0 "$pid" 2>/dev/null; do sleep 0.01; done\nexit 1');
+    process.env.PATH = join(dir, "bin") + ":" + path;
+    assert.ok(isStopped(pid), `expected process ${pid} to count as stopped`);
+  } finally {
+    process.env.PATH = path;
+    try {
+      process.kill(-parent.pid, "SIGKILL");
+    } catch {
+      // bash already ended once sleep did.
+    }
   }
 });
 
