@@ -657,7 +657,7 @@ def validate_report_path(raw: str) -> Path | None:
     if is_dir:
         raise unavailable("is a directory")
     if not parent_is_dir:
-        raise unavailable(f"is in {path.parent}, which is not an existing directory")
+        raise unavailable("is not in an existing directory")
     if exists and not is_file:
         raise unavailable("is not a regular file")
     try:

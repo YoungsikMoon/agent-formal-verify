@@ -601,6 +601,21 @@ test("tlc-matrix.sh rejects non-regular file (FIFO) TLC_HTML_REPORT without invo
   assert.equal(existsSync(join(dir, "calls")), false);
 });
 
+test("tlc-matrix.sh prints an unusable TLC_HTML_REPORT on one line, even with a newline in its directory", () => {
+  const dir = fixture();
+  writeFileSync(join(dir, "One.tla"), "---- MODULE One ----\n====\n");
+  writeFileSync(join(dir, "One.matrix"), "spec One.tla\nrun n=1 | N=1\n");
+  writeFileSync(join(dir, "tools.jar"), "user supplied");
+  const res = run(dir, "tlc-matrix.sh", [join(dir, "One.matrix")], {
+    JAVA: fakeTlc(dir, 'echo started >> "$TASK_TRACE"'),
+    TLC_JAR: join(dir, "tools.jar"),
+    TLC_HTML_REPORT: join(dir, "a\nb", "report.html"),
+  });
+  assert.equal(res.status, 3, res.stdout + res.stderr);
+  assert.equal(res.stdout, `UNAVAILABLE TLC_HTML_REPORT='${join(dir, "a\\nb", "report.html")}' is not in an existing directory; `
+    + "set it to a file in an existing directory that you can write to, or unset it to write no report\n");
+});
+
 test("tlc-matrix.sh reports a missing Java before a bad TLC_HTML_REPORT", () => {
   const dir = fixture();
   writeFileSync(join(dir, "One.tla"), "---- MODULE One ----\n====\n");
