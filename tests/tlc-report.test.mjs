@@ -155,6 +155,43 @@ test("tlc_report.to_mermaid renders multi-step and initial-state reach witnesses
   }
 });
 
+test("tlc_report.to_mermaid keeps labels that hold words Mermaid reads anywhere on a line", () => {
+  const log = [
+    "Error: Temporal properties were violated.",
+    "Error: The following behavior constitutes a counter-example:",
+    "State 1: <Init>",
+    '/\\ a = "direction LR"',
+    '/\\ b = "[[fork]]"',
+    "",
+    "State 2: <Step direction TB>",
+    '/\\ a = "DIRECTION rl"',
+    '/\\ b = "[[JOIN]]"',
+    "",
+    "State 3: <Next direction\uFEFFRL>",
+    '/\\ a = "Direction Bt"',
+    '/\\ b = "<<choice>> [[choice]]"',
+    "",
+    "Back to state 1: <Loop direction LR>",
+  ].join("\n");
+  const result = callMermaidText(log, { title: "One direction RL" });
+  assert.equal(result.status, 0, result.stderr);
+  const lines = result.stdout.split("\n");
+  // Mermaid renders the entity code #<decimal>; as the character with that code.
+  const rendered = (text) => text.replace(/#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)));
+  assert.deepEqual(lines.filter((line) => line.startsWith('state "')).map(rendered), [
+    'state "State 1: Init | a="direction LR", b="[[fork]]"" as S1',
+    'state "State 2: Step direction TB | a="DIRECTION rl", b="[[JOIN]]"" as S2',
+    'state "State 3: Next direction\uFEFFRL | a="Direction Bt", b="<<choice>> [[choice]]"" as S3',
+  ]);
+  includes(rendered(result.stdout), "S1 --> S2 : Step direction TB\n");
+  includes(rendered(result.stdout), "S2 --> S3 : Next direction\uFEFFRL\n");
+  includes(rendered(result.stdout), "S3 --> S1 : Back to state 1 - Loop direction LR\n");
+  // Mermaid 11's stateDiagram lexer, which ignores case, takes a line that holds any of these as a direction or a fork, join or choice.
+  for (const line of lines) {
+    assert.doesNotMatch(line, /direction\s+(tb|bt|rl|lr)|<<(fork|join|choice)>>|\[\[(fork|join|choice)\]\]/i, line);
+  }
+});
+
 function callSvg(logFile, traceId = "trace-0", kind = "fail") {
   const script = [
     "import sys",
