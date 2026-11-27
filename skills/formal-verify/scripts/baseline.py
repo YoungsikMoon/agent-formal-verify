@@ -437,7 +437,9 @@ def renamed(surface, old_module, new_module):
     old, new = ([] if path == "crate" else path.split("::") for path in (old_module, new_module))
     result = {}
     for name, value in surface.items():
-        head, owner, duplicate = KANI_KEY.fullmatch(name).groups()
+        if (item := KANI_KEY.fullmatch(name)) is None:
+            raise ValueError(f"cannot rename the recorded item '{name}', which is not a Kani harness, assume, cover or stub")
+        head, owner, duplicate = item.groups()
         parts = owner.split("::")
         if parts[:len(old)] == old:
             owner = "::".join(new + parts[len(old):])
