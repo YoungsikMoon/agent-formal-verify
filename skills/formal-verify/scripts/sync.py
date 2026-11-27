@@ -370,19 +370,20 @@ def main():
             print(f"FAIL --source {source} is {path}, which no commit in {root} has")
             return 1
         sources.append(str(path.relative_to(root)))
-    paths = renamed(root, sync, sources)
+    source_paths = renamed(root, sync, sources)
+    paths = set(source_paths)
     excluded = [f":(exclude){path}" for path in relative if path not in sources]
-    suffixes = {Path(path).suffix.lower() for path in paths}
+    suffixes = {Path(path).suffix.lower() for path in source_paths}
     missing = []
     for name in arguments.name:
         found = git(root, "grep", "-l", "-z", "-w", "-F", "-e", name, "--", ".", *excluded, check=False)
         if found.returncode > 1:
             raise RuntimeError(f"git grep for {name} failed: {found.stderr.strip()}")
-        roles = {file: role(file, paths, suffixes) for file in found.stdout.split("\0") if file}
+        roles = {file: role(file, source_paths, suffixes) for file in found.stdout.split("\0") if file}
         if not any(kind == "defines" and in_code(root, file, name) for file, kind in roles.items()):
             missing.append(name)
         files = [*roles, *held(root, sync, name, [".", *excluded])]
-        paths.update(file for file in files if role(file, paths, suffixes))
+        paths.update(file for file in files if role(file, source_paths, suffixes))
     for path in sorted(paths):
         print(f"PATH {path}")
     for name in missing:
